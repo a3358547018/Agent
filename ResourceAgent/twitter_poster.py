@@ -27,17 +27,20 @@ from config import (
     TWEET_ACTIVE_HOURS,
 )
 
+from threading import Lock as _FileLock
+
 logger = logging.getLogger(__name__)
 
 # 发推计数文件
 _COUNT_FILE = Path("data/tweet_count.json")
+_COUNT_LOCK = _FileLock()
 
 
 # ══════════════════════════════════════════════════════════════
-#  发推计数管理
+#  发推计数管理（线程安全 + 原子写）
 # ══════════════════════════════════════════════════════════════
 
-def _load_count() -> dict:
+def _load_count_unlocked() -> dict:
     if _COUNT_FILE.exists():
         try:
             with open(_COUNT_FILE, "r") as f:
@@ -47,14 +50,17 @@ def _load_count() -> dict:
     return {"date": "", "count": 0}
 
 
-def _save_count(data: dict) -> None:
+def _save_count_unlocked(data: dict) -> None:
     _COUNT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(_COUNT_FILE, "w") as f:
+    tmp = _COUNT_FILE.with_suffix(".json.tmp")
+    with open(tmp, "w") as f:
         json.dump(data, f)
+    tmp.replace(_COUNT_FILE)
 
 
 def _get_today_count() -> int:
-    data  = _load_count()
+    with _COUNT_LOCK:
+        data = _load_count_unlocked()
     today = datetime.now().strftime("%Y-%m-%d")
     if data.get("date") != today:
         return 0
@@ -62,12 +68,13 @@ def _get_today_count() -> int:
 
 
 def _increment_count() -> None:
-    data  = _load_count()
-    today = datetime.now().strftime("%Y-%m-%d")
-    if data.get("date") != today:
-        data = {"date": today, "count": 0}
-    data["count"] += 1
-    _save_count(data)
+    with _COUNT_LOCK:
+        data  = _load_count_unlocked()
+        today = datetime.now().strftime("%Y-%m-%d")
+        if data.get("date") != today:
+            data = {"date": today, "count": 0}
+        data["count"] += 1
+        _save_count_unlocked(data)
 
 
 def _is_active_hour() -> bool:
@@ -254,43 +261,44 @@ def post_tweet(tweet_text: str) -> bool:
     """
     发送单条推文。
     返回 True 表示成功，False 表示跳过或失败。
+    注意：不在此函数做间隔 sleep，间隔交由 post_tweets_batch 统一控制。
     """
     if not _can_tweet():
         return False
-
-    # 等待最小间隔
-    min_interval = TWITTER_MIN_INTERVAL_MINUTES * 60
-    _human_delay(min_interval * 0.1, min_interval * 0.2)   # 简化：不做严格计时
-
     return _post_tweet_playwright(tweet_text)
 
 
-def post_tweets_batch(resources_with_tweets: list[dict]) -> tuple[int, int]:
+def post_tweets_batch(resources_with_tweets: list) -> tuple[int, list]:
     """
-    批量发推。每条之间等待 TWITTER_MIN_INTERVAL_MINUTES。
-    resources_with_tweets: 带 tweet_text 字段的资源列表。
-    返回 (成功数, 跳过/失败数)。
+    批量发推。
+    返回 (成功发出的条数, 未发出的资源列表)。
+    调用方应把"未发出的资源"退回队列，这样不会和已发的位置错位。
     """
-    ok = skip = 0
-    for r in resources_with_tweets:
+    ok = 0
+    unsent = []
+
+    for i, r in enumerate(resources_with_tweets):
         tweet_text = r.get("tweet_text", "")
         if not tweet_text:
-            skip += 1
+            # 空文本直接丢弃，不退回（避免无限循环）
             continue
 
+        # 如果已达每日上限或过了活跃时段，把剩余全部退回
         if not _can_tweet():
-            skip += len(resources_with_tweets) - ok - skip
+            unsent.extend(resources_with_tweets[i:])
             break
 
         success = post_tweet(tweet_text)
         if success:
             ok += 1
-            # 间隔等待
-            wait = TWITTER_MIN_INTERVAL_MINUTES * 60 + random.randint(-60, 120)
-            logger.info(f"[Twitter] 等待 {wait // 60} 分钟后发下一条…")
-            time.sleep(max(wait, 60))
+            # 间隔等待（只在还有下一条时等待）
+            if i < len(resources_with_tweets) - 1:
+                wait = TWITTER_MIN_INTERVAL_MINUTES * 60 + random.randint(-60, 120)
+                logger.info(f"[Twitter] 等待 {max(wait, 60) // 60} 分钟后发下一条…")
+                time.sleep(max(wait, 60))
         else:
-            skip += 1
+            # 发送失败：退回队列，之后再试
+            unsent.append(r)
 
-    logger.info(f"[Twitter] 批量发推完成: 成功 {ok} / 跳过或失败 {skip}")
-    return ok, skip
+    logger.info(f"[Twitter] 批量发推完成: 成功 {ok} / 未发出 {len(unsent)}")
+    return ok, unsent

@@ -9,7 +9,7 @@ okboost.py — OKX / OKBoost 每日动态抓取模块
 import re
 import requests
 import xml.etree.ElementTree as ET
-from datetime import date, datetime, timezone
+from datetime import date
 from email.utils import parsedate_to_datetime
 
 OKX_RSS_URL = "https://www.okx.com/help-center/rss.xml"

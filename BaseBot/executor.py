@@ -17,7 +17,7 @@ import random
 import logging
 from pathlib import Path
 from datetime import datetime
-from threading import Event
+from threading import Event, Lock
 
 from config import (
     WALLETS_COUNT, WETH_ADDRESS, STATE_FILE,
@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 
 # 全局停止信号
 STOP_EVENT = Event()
+
+# state.json 读写锁
+_STATE_LOCK = Lock()
 
 # 紧急事件队列（TG「立即执行」按钮用）
 # 每一项是 {"wallet": int, "type": "swap"/"buy"/"sell"/"transfer"/"claim_fee"}
@@ -119,20 +122,24 @@ def get_context() -> dict:
 
 def _load_state() -> dict:
     p = Path(STATE_FILE)
-    if p.exists():
-        try:
-            with open(p) as f:
-                return json.load(f)
-        except Exception:
-            pass
+    with _STATE_LOCK:
+        if p.exists():
+            try:
+                with open(p) as f:
+                    return json.load(f)
+            except Exception:
+                pass
     return {"running": True, "started_at": datetime.now().isoformat()}
 
 
 def _save_state(state: dict) -> None:
     p = Path(STATE_FILE)
     p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "w") as f:
-        json.dump(state, f, indent=2)
+    with _STATE_LOCK:
+        tmp = p.with_suffix(".json.tmp")
+        with open(tmp, "w") as f:
+            json.dump(state, f, indent=2)
+        tmp.replace(p)   # 原子写
 
 
 def set_running(running: bool) -> None:
@@ -189,13 +196,17 @@ def _handle_swap(w3, wallet: dict, tokens_allocated: list[dict],
             logger.warning(f"[Executor] 钱包 #{widx} 无可用代币")
             return False
         tok = random.choice(tokens_allocated)
+        # 先校验 decimals 能取到，否则金额会算错
+        decimals = swap_engine.get_token_decimals(w3, tok["address"])
+        if decimals < 0:
+            logger.warning(f"[Executor] 代币 {tok.get('symbol')} decimals 获取失败，跳过")
+            return False
         eth_amount = _random_eth_amount()
         tx_hash, amount_out = swap_engine.swap_eth_to_token(
             w3, wallet["private_key"], wallet["address"],
             tok["address"], eth_amount,
         )
         if tx_hash:
-            decimals = swap_engine.get_token_decimals(w3, tok["address"])
             ledger.record_buy(
                 widx, tok["address"], tok["symbol"],
                 eth_amount, amount_out / (10 ** decimals), tx_hash,
@@ -207,6 +218,9 @@ def _handle_swap(w3, wallet: dict, tokens_allocated: list[dict],
         tok_addr = random.choice(holding_tokens)
         info     = holdings[tok_addr]
         decimals = swap_engine.get_token_decimals(w3, tok_addr)
+        if decimals < 0:
+            logger.warning(f"[Executor] 代币 decimals 获取失败，跳过卖出")
+            return False
 
         # 卖出持仓的 ratio 比例（可调）
         r_min = float(get_param("SELL_RATIO_MIN") or 0.3)
@@ -260,6 +274,9 @@ def _handle_transfer(w3, wallet: dict, all_wallet_addrs: set[str],
 
     token_addr, info = random.choice(candidates)
     decimals   = swap_engine.get_token_decimals(w3, token_addr)
+    if decimals < 0:
+        logger.warning(f"[Executor] transfer decimals 获取失败，跳过")
+        return False
     amount_raw = int(info["balance"] * transfer_pct * (10 ** decimals))
     if amount_raw == 0:
         return False

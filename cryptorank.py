@@ -4,25 +4,29 @@ cryptorank.py — CryptoRank API 数据抓取模块
 覆盖功能：
   1. 当日融资轮次（Funding Rounds）
   2. 近期新上线 / 即将上币项目（IDO/IEO/ICO）
+
+注意：
+  - 使用 CryptoRank V2 公开 API（V1 已停用）
+  - V2 鉴权通过 HTTP Header `X-Api-Key`，不再用 query `api_key`
 """
 
 import requests
 from datetime import date, timedelta
 from config import CRYPTORANK_API_KEY
 
-BASE_V1  = "https://api.cryptorank.io/v1"
+BASE_V2 = "https://api.cryptorank.io/v2"
+
 
 def _get(endpoint: str, params: dict = None) -> dict:
     """统一 GET 请求，返回 data 字段；出错返回 {}。"""
-    url = BASE_V1 + endpoint
-    if params is None:
-        params = {}
-    params["api_key"] = CRYPTORANK_API_KEY
+    url = BASE_V2 + endpoint
+    headers = {"X-Api-Key": CRYPTORANK_API_KEY}
     try:
-        resp = requests.get(url, params=params, timeout=15)
+        resp = requests.get(url, params=params or {}, headers=headers, timeout=15)
         resp.raise_for_status()
         body = resp.json()
-        return body.get("data", body)
+        # V2 返回结构通常是 {"data": [...], "meta": {...}}
+        return body if isinstance(body, dict) else {}
     except Exception as e:
         print(f"[CryptoRank] {endpoint} 请求异常: {e}")
         return {}
@@ -45,7 +49,9 @@ def get_daily_funding(target_date: date = None) -> list[dict]:
         "offset":   0,
     })
 
-    items = raw if isinstance(raw, list) else raw.get("items", raw.get("list", []))
+    items = raw.get("data") if isinstance(raw, dict) else raw
+    if not isinstance(items, list):
+        items = []
     result = []
     for item in items:
         investors = [inv.get("name", "") for inv in (item.get("investors") or [])]
@@ -79,7 +85,9 @@ def get_upcoming_ido(days_ahead: int = 7) -> list[dict]:
         "offset":   0,
     })
 
-    items = raw if isinstance(raw, list) else raw.get("items", raw.get("list", []))
+    items = raw.get("data") if isinstance(raw, dict) else raw
+    if not isinstance(items, list):
+        items = []
     result = []
     for item in items:
         result.append({
@@ -108,7 +116,9 @@ def get_recent_listings(days: int = 1) -> list[dict]:
         "limit":    30,
     })
 
-    items = raw if isinstance(raw, list) else raw.get("items", raw.get("list", []))
+    items = raw.get("data") if isinstance(raw, dict) else raw
+    if not isinstance(items, list):
+        items = []
     result = []
     for item in items:
         result.append({

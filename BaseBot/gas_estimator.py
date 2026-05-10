@@ -74,21 +74,27 @@ def build_gas_params(w3, estimated_gas: int = None) -> dict | None:
     """
     构建交易的 gas 参数字典，供 build_transaction 使用。
     如果 gas 成本超过阈值，返回 None（调用方应跳过该笔交易）。
+    策略：
+      - 取 live_gas 与 default_gwei 的较大值作为实际 gas price（保证能上链）
+      - 最终再用美元成本上限 MAX_GAS_COST_USD 做硬守护
     """
     # 从 overrides 读取可调参数
     default_gwei   = float(get_param("GAS_PRICE_DEFAULT_GWEI") or 0.1)
     gas_limit_max  = int(get_param("GAS_LIMIT_MAX") or 1_000_000)
     max_cost_usd   = float(get_param("MAX_GAS_COST_USD") or 0.01)
 
-    gas_price_gwei = estimate_gas_price_gwei(w3)
-    # 题目要求：gas price 用 OKX 估算或 0.1 gwei（取较低者以保成本）
-    gas_price_gwei = min(gas_price_gwei, max(default_gwei, 0.1))
+    live_gwei      = estimate_gas_price_gwei(w3)
+    # 关键修复：取 max（不是 min），以免 live=2 gwei 时我们却发 0.1 gwei 导致永远 pending
+    gas_price_gwei = max(live_gwei, default_gwei)
 
     gas_limit = min(estimated_gas or gas_limit_max, gas_limit_max)
     cost_usd  = calc_gas_cost_usd(gas_price_gwei, gas_limit)
 
     if cost_usd > max_cost_usd:
-        logger.warning(f"[Gas] 成本 ${cost_usd:.4f} 超过上限 ${max_cost_usd}，跳过")
+        logger.warning(
+            f"[Gas] 成本 ${cost_usd:.4f} 超过上限 ${max_cost_usd} "
+            f"(live={live_gwei:.4f} gwei, limit={gas_limit}), 跳过本次交易"
+        )
         return None
 
     return {

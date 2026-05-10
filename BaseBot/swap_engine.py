@@ -35,10 +35,16 @@ def _get_nonce(w3: Web3, address: str) -> int:
 
 
 def _sign_and_send(w3: Web3, tx: dict, private_key: str) -> str | None:
-    """签名并发送交易，返回 tx_hash 或 None。"""
+    """签名并发送交易，返回 tx_hash 或 None。
+    兼容 eth-account v0.12 (rawTransaction) 和 v0.13+ (raw_transaction)。
+    """
     try:
-        signed  = w3.eth.account.sign_transaction(tx, private_key)
-        tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+        signed = w3.eth.account.sign_transaction(tx, private_key)
+        raw = getattr(signed, "raw_transaction", None) or getattr(signed, "rawTransaction", None)
+        if raw is None:
+            logger.error("[Swap] 签名后对象没有 raw_transaction/rawTransaction 属性")
+            return None
+        tx_hash = w3.eth.send_raw_transaction(raw)
         return tx_hash.hex()
     except Exception as e:
         logger.error(f"[Swap] 签名/发送失败: {e}")
@@ -56,14 +62,16 @@ def _wait_receipt(w3: Web3, tx_hash: str, timeout: int = 120) -> bool:
 
 
 def get_token_decimals(w3: Web3, token_address: str) -> int:
+    """查询代币 decimals。失败时返回 -1（调用方应跳过此代币，避免默认 18 导致 USDC 这种 6 位代币金额错百万倍）。"""
     try:
         c = w3.eth.contract(
             address=w3.to_checksum_address(token_address),
             abi=ERC20_ABI,
         )
-        return c.functions.decimals().call()
-    except Exception:
-        return 18
+        return int(c.functions.decimals().call())
+    except Exception as e:
+        logger.warning(f"[Swap] get_token_decimals 失败 {token_address[:10]}: {e}")
+        return -1
 
 
 def get_token_balance(w3: Web3, token_address: str, owner: str) -> int:

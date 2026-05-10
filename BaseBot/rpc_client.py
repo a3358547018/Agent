@@ -1,10 +1,23 @@
 """
 rpc_client.py — Web3 RPC 客户端（带自动故障切换）
+
+兼容 web3.py v5/v6/v7（v7 起 `geth_poa_middleware` 已改名 `ExtraDataToPOAMiddleware`）
 """
 
 import logging
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
+
+# 兼容新旧版本的 POA 中间件（Base 链需要）
+_POA_MW = None
+try:
+    # web3.py v7+
+    from web3.middleware import ExtraDataToPOAMiddleware as _POA_MW
+except ImportError:
+    try:
+        # web3.py v5/v6
+        from web3.middleware import geth_poa_middleware as _POA_MW
+    except ImportError:
+        _POA_MW = None
 
 from config import BASE_RPC_URL, BASE_RPC_BACKUPS, CHAIN_ID
 
@@ -13,14 +26,14 @@ logger = logging.getLogger(__name__)
 _w3_cache = None
 
 
-def _build_w3(url: str) -> Web3 | None:
+def _build_w3(url: str):
     try:
         w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 15}))
-        # Base 是 OP Stack，需要 POA 中间件
-        try:
-            w3.middleware_onion.inject(geth_poa_middleware, layer=0)
-        except Exception:
-            pass
+        if _POA_MW is not None:
+            try:
+                w3.middleware_onion.inject(_POA_MW, layer=0)
+            except Exception:
+                pass
         if w3.is_connected() and w3.eth.chain_id == CHAIN_ID:
             return w3
     except Exception as e:

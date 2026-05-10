@@ -46,8 +46,10 @@ logger = logging.getLogger(__name__)
 # ══════════════════════════════════════════════════════════════
 
 def _is_admin(chat_id: int) -> bool:
+    # 安全：未配置 admin 列表时拒绝一切访问（防止钱包被任意人操控）
     if not TG_ADMIN_CHAT_IDS:
-        return True
+        logger.warning(f"[TG] 未配置 TG_ADMIN_CHAT_IDS，拒绝访问 chat_id={chat_id}")
+        return False
     return chat_id in TG_ADMIN_CHAT_IDS
 
 
@@ -829,6 +831,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if cmd == "run" and parts[1] == "stop":
             await q.edit_message_text("🛑 正在停止进程…", parse_mode="HTML")
             executor.stop()
+            # 真正退出 Python 进程（executor.stop 只置 STOP_EVENT）
+            import threading, os, signal
+            def _delayed_exit():
+                import time; time.sleep(2)
+                os.kill(os.getpid(), signal.SIGINT)
+            threading.Thread(target=_delayed_exit, daemon=True).start()
             return
 
         # ── 📝 时间表 ────────────────────────────────────────

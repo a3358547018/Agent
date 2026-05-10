@@ -26,6 +26,7 @@ import dedup
 import thunder_drive
 import ai_writer
 import twitter_poster
+from threading import Lock
 
 # ── 日志配置 ─────────────────────────────────────────────────
 LOG_DIR = Path("logs")
@@ -43,36 +44,41 @@ logger = logging.getLogger("main")
 
 # 待发推队列文件
 PENDING_QUEUE = Path("data/pending_tweets.json")
+_QUEUE_LOCK = Lock()
 
 
 # ══════════════════════════════════════════════════════════════
-#  队列管理
+#  队列管理（线程安全 + 原子写）
 # ══════════════════════════════════════════════════════════════
 
-def _load_queue() -> list[dict]:
-    if PENDING_QUEUE.exists():
-        try:
-            with open(PENDING_QUEUE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
+def _load_queue() -> list:
+    with _QUEUE_LOCK:
+        if PENDING_QUEUE.exists():
+            try:
+                with open(PENDING_QUEUE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
     return []
 
 
-def _save_queue(queue: list[dict]) -> None:
+def _save_queue(queue: list) -> None:
     PENDING_QUEUE.parent.mkdir(parents=True, exist_ok=True)
-    with open(PENDING_QUEUE, "w", encoding="utf-8") as f:
-        json.dump(queue, f, ensure_ascii=False, indent=2)
+    with _QUEUE_LOCK:
+        tmp = PENDING_QUEUE.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(queue, f, ensure_ascii=False, indent=2)
+        tmp.replace(PENDING_QUEUE)
 
 
-def _append_to_queue(items: list[dict]) -> None:
+def _append_to_queue(items: list) -> None:
     queue = _load_queue()
     queue.extend(items)
     _save_queue(queue)
     logger.info(f"[Queue] 加入待发队列 {len(items)} 条，当前队列共 {len(queue)} 条")
 
 
-def _pop_from_queue(n: int = 5) -> list[dict]:
+def _pop_from_queue(n: int = 5) -> list:
     """从队列头部取出 n 条，并更新队列文件。"""
     queue = _load_queue()
     batch = queue[:n]
@@ -128,14 +134,13 @@ def run_tweet_pipeline() -> None:
         return
 
     logger.info(f"[发推] 从队列取出 {len(batch)} 条，开始发推…")
-    ok, skip = twitter_poster.post_tweets_batch(batch)
+    ok, unsent = twitter_poster.post_tweets_batch(batch)
 
-    # 未发出的推回队列头部（skip 可能是因为超限，留待下次）
-    if skip > 0:
-        unsent = batch[ok:]
-        queue  = _load_queue()
+    # 把未发出的退回队列头部（保持原顺序）
+    if unsent:
+        queue = _load_queue()
         _save_queue(unsent + queue)
-        logger.info(f"[发推] {skip} 条未发出，已退回队列头部")
+        logger.info(f"[发推] {len(unsent)} 条未发出，已退回队列头部")
 
 
 async def run_full_pipeline() -> None:

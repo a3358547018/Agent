@@ -103,16 +103,18 @@ def generate_daily_schedule(target_date: date = None) -> list[dict]:
     return all_events
 
 
-def save_schedule(events: list[dict]) -> None:
+def save_schedule(events: list) -> None:
     p = Path(SCHEDULE_FILE)
     p.parent.mkdir(parents=True, exist_ok=True)
     with _SCHEDULE_LOCK:
-        with open(p, "w") as f:
+        tmp = p.with_suffix(".json.tmp")
+        with open(tmp, "w") as f:
             json.dump({
                 "generated_at": datetime.now().isoformat(),
                 "date":         events[0]["time"][:10] if events else date.today().isoformat(),
                 "events":       events,
             }, f, indent=2, ensure_ascii=False)
+        tmp.replace(p)   # 原子替换
 
 
 def load_schedule() -> list[dict]:
@@ -140,12 +142,34 @@ def ensure_today_schedule() -> list[dict]:
 
 
 def remove_completed_event(event_time: str, wallet: int, event_type: str) -> None:
-    events = load_schedule()
-    events = [
-        e for e in events
-        if not (e["time"] == event_time and e["wallet"] == wallet and e["type"] == event_type)
-    ]
-    save_schedule(events)
+    """从时间表移除指定事件。load+filter+save 在同一把锁内，避免 lost update。"""
+    p = Path(SCHEDULE_FILE)
+    with _SCHEDULE_LOCK:
+        if not p.exists():
+            return
+        try:
+            with open(p) as f:
+                data = json.load(f)
+        except Exception:
+            return
+        today = date.today().isoformat()
+        if data.get("date") != today:
+            return
+        events = data.get("events", [])
+        new_events = [
+            e for e in events
+            if not (e["time"] == event_time and e["wallet"] == wallet and e["type"] == event_type)
+        ]
+        if len(new_events) == len(events):
+            return   # 没删到
+        tmp = p.with_suffix(".json.tmp")
+        with open(tmp, "w") as f:
+            json.dump({
+                "generated_at": data.get("generated_at", datetime.now().isoformat()),
+                "date":         today,
+                "events":       new_events,
+            }, f, indent=2, ensure_ascii=False)
+        tmp.replace(p)
 
 
 # ══════════════════════════════════════════════════════════════

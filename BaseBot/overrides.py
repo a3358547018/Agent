@@ -67,8 +67,10 @@ def _load_all() -> dict:
 
 def _save_all(data: dict) -> None:
     _OVERRIDE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(_OVERRIDE_FILE, "w") as f:
+    tmp = _OVERRIDE_FILE.with_suffix(".json.tmp")
+    with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
+    tmp.replace(_OVERRIDE_FILE)
 
 
 def get_param(key: str):

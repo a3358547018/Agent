@@ -49,7 +49,7 @@ def _build_resource(title: str, url: str, desc: str, source: str) -> dict:
 #  1. Telegram 群组抓取
 # ══════════════════════════════════════════════════════════════
 
-async def fetch_tg_resources(limit_per_group: int = 50) -> list[dict]:
+async def fetch_tg_resources(limit_per_group: int = 50) -> list:
     """
     用 Telethon 拉取 TG 群最新消息，筛选含资源关键词的条目。
     返回资源列表。
@@ -66,41 +66,42 @@ async def fetch_tg_resources(limit_per_group: int = 50) -> list[dict]:
         return []
 
     results = []
-    client  = TelegramClient("resource_agent_session", TG_API_ID, TG_API_HASH)
+    client = TelegramClient("resource_agent_session", TG_API_ID, TG_API_HASH)
 
+    # 使用 async with 统一管理生命周期，避免 start + async with 重复启动
     try:
-        await client.start(phone=TG_PHONE)
-    except SessionPasswordNeededError:
-        logger.error("[TG] 账号开启了两步验证，请先在 config.py 配置或手动登录。")
-        return []
-    except Exception as e:
-        logger.error(f"[TG] 登录失败: {e}")
-        return []
-
-    async with client:
-        for group in TG_SOURCE_GROUPS:
+        async with client:
             try:
-                entity   = await client.get_entity(group)
-                messages = await client.get_messages(entity, limit=limit_per_group)
-                for msg in messages:
-                    text = msg.text or ""
-                    if not text:
-                        continue
-                    if not _is_resource(text):
-                        continue
-                    links = _extract_links(text)
-                    url   = links[0] if links else ""
-                    # 取第一行为标题
-                    first_line = text.split("\n")[0].strip()[:100]
-                    results.append(_build_resource(
-                        title  = first_line or "TG资源",
-                        url    = url,
-                        desc   = text[:300],
-                        source = f"tg:{getattr(entity, 'username', str(group))}",
-                    ))
-                logger.info(f"[TG] {group} 抓取 {len(messages)} 条，命中 {sum(1 for r in results if 'tg:' in r['source'])} 条")
-            except Exception as e:
-                logger.error(f"[TG] 抓取群 {group} 失败: {e}")
+                await client.start(phone=TG_PHONE)
+            except SessionPasswordNeededError:
+                logger.error("[TG] 账号开启了两步验证，请先在 config.py 配置或手动登录。")
+                return []
+
+            for group in TG_SOURCE_GROUPS:
+                try:
+                    entity   = await client.get_entity(group)
+                    messages = await client.get_messages(entity, limit=limit_per_group)
+                    hit_count = 0
+                    for msg in messages:
+                        text = msg.text or ""
+                        if not text or not _is_resource(text):
+                            continue
+                        links = _extract_links(text)
+                        url   = links[0] if links else ""
+                        first_line = text.split("\n")[0].strip()[:100]
+                        results.append(_build_resource(
+                            title  = first_line or "TG资源",
+                            url    = url,
+                            desc   = text[:300],
+                            source = f"tg:{getattr(entity, 'username', str(group))}",
+                        ))
+                        hit_count += 1
+                    logger.info(f"[TG] {group} 抓取 {len(messages)} 条，命中 {hit_count} 条")
+                except Exception as e:
+                    logger.error(f"[TG] 抓取群 {group} 失败: {e}")
+    except Exception as e:
+        logger.error(f"[TG] 客户端异常: {e}")
+        return results
 
     return results
 
