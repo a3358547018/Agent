@@ -12,10 +12,8 @@ import logging
 import requests
 import time
 
-from config import (
-    OKX_API_URL, GAS_PRICE_DEFAULT_GWEI, GAS_LIMIT_MAX,
-    MAX_GAS_COST_USD, ETH_PRICE_API,
-)
+from config    import OKX_API_URL, ETH_PRICE_API
+from overrides import get_param
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +60,8 @@ def estimate_gas_price_gwei(w3) -> float:
     except Exception as e:
         logger.debug(f"[Gas] RPC eth_gasPrice 失败: {e}")
 
-    # 3. 默认
-    return GAS_PRICE_DEFAULT_GWEI
+    # 3. 默认（从 overrides 读取，TG 可调）
+    return float(get_param("GAS_PRICE_DEFAULT_GWEI") or 0.1)
 
 
 def calc_gas_cost_usd(gas_price_gwei: float, gas_limit: int) -> float:
@@ -77,15 +75,20 @@ def build_gas_params(w3, estimated_gas: int = None) -> dict | None:
     构建交易的 gas 参数字典，供 build_transaction 使用。
     如果 gas 成本超过阈值，返回 None（调用方应跳过该笔交易）。
     """
+    # 从 overrides 读取可调参数
+    default_gwei   = float(get_param("GAS_PRICE_DEFAULT_GWEI") or 0.1)
+    gas_limit_max  = int(get_param("GAS_LIMIT_MAX") or 1_000_000)
+    max_cost_usd   = float(get_param("MAX_GAS_COST_USD") or 0.01)
+
     gas_price_gwei = estimate_gas_price_gwei(w3)
     # 题目要求：gas price 用 OKX 估算或 0.1 gwei（取较低者以保成本）
-    gas_price_gwei = min(gas_price_gwei, max(GAS_PRICE_DEFAULT_GWEI, 0.1))
+    gas_price_gwei = min(gas_price_gwei, max(default_gwei, 0.1))
 
-    gas_limit = min(estimated_gas or GAS_LIMIT_MAX, GAS_LIMIT_MAX)
+    gas_limit = min(estimated_gas or gas_limit_max, gas_limit_max)
     cost_usd  = calc_gas_cost_usd(gas_price_gwei, gas_limit)
 
-    if cost_usd > MAX_GAS_COST_USD:
-        logger.warning(f"[Gas] 成本 ${cost_usd:.4f} 超过上限 ${MAX_GAS_COST_USD}，跳过")
+    if cost_usd > max_cost_usd:
+        logger.warning(f"[Gas] 成本 ${cost_usd:.4f} 超过上限 ${max_cost_usd}，跳过")
         return None
 
     return {
