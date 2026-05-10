@@ -81,8 +81,9 @@ def _main_menu_kb() -> InlineKeyboardMarkup:
          InlineKeyboardButton("🔑 陌生地址池",  callback_data="strangers")],
         [InlineKeyboardButton("⛽ Gas 设置",    callback_data="gas"),
          InlineKeyboardButton("🎲 交易参数",    callback_data="params")],
-        [InlineKeyboardButton("📊 今日统计",    callback_data="stats"),
-         InlineKeyboardButton("ℹ️ 系统状态",   callback_data="status")],
+        [InlineKeyboardButton("🎰 随机性调节",  callback_data="rand"),
+         InlineKeyboardButton("📊 今日统计",    callback_data="stats")],
+        [InlineKeyboardButton("ℹ️ 系统状态",   callback_data="status")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -359,11 +360,20 @@ def _pick_wallet_menu(action: str, page: int) -> tuple[str, InlineKeyboardMarkup
 # ── 📤 转账控制 ───────────────────────────────────────────────
 def _xfer_menu() -> tuple[str, InlineKeyboardMarkup]:
     enabled = executor.get_enabled()["transfer"]
-    pct     = float(overrides.get_param("TRANSFER_PCT") or 0.30)
+    n_xfer  = int(overrides.get_param("TRANSFERS_PER_WALLET_DAY") or 1)
+    pct_min = overrides.get_param("TRANSFER_PCT_MIN")
+    pct_max = overrides.get_param("TRANSFER_PCT_MAX")
+    if pct_min is not None and pct_max is not None:
+        pct_txt = f"{float(pct_min)*100:.0f}% ~ {float(pct_max)*100:.0f}%（区间随机）"
+    else:
+        fixed = float(overrides.get_param("TRANSFER_PCT") or 0.30)
+        pct_txt = f"{fixed*100:.0f}%（固定）"
+
     text = (
         "📤 <b>转账控制</b>\n\n"
         f"Transfer 开关: <b>{'✅ 启用' if enabled else '❌ 禁用'}</b>\n"
-        f"当前转账比例: <b>{pct*100:.0f}%</b>\n\n"
+        f"每钱包每日转账次数: <b>{n_xfer}</b>\n"
+        f"当前转账比例: <b>{pct_txt}</b>\n\n"
         "转账规则: 抽代币 → 转 X% 到陌生地址\n"
         "限制: 不转 ETH, 不转给自家 22 个钱包"
     )
@@ -373,22 +383,56 @@ def _xfer_menu() -> tuple[str, InlineKeyboardMarkup]:
             callback_data="xfer:toggle",
         )],
         [InlineKeyboardButton("🎯 手动对某钱包转账", callback_data="swap:pick:transfer:0")],
-        [InlineKeyboardButton("📊 调整转账比例",      callback_data="xfer:pct")],
+        [InlineKeyboardButton("🔢 转账笔数 / 天",   callback_data="xfer:count"),
+         InlineKeyboardButton("📊 转账比例",        callback_data="xfer:pct")],
         [_back_btn()],
     ]
     return text, InlineKeyboardMarkup(kb)
 
 
-def _xfer_pct_menu() -> tuple[str, InlineKeyboardMarkup]:
-    cur = float(overrides.get_param("TRANSFER_PCT") or 0.30)
-    text = f"📊 <b>调整转账比例</b>\n\n当前: <b>{cur*100:.0f}%</b>"
+def _xfer_count_menu() -> tuple[str, InlineKeyboardMarkup]:
+    cur = int(overrides.get_param("TRANSFERS_PER_WALLET_DAY") or 1)
+    text = (
+        "🔢 <b>每钱包每日转账笔数</b>\n\n"
+        f"当前: <b>{cur}</b> 次\n\n"
+        "数值越大，每天每个钱包给陌生地址转账的次数越多。\n"
+        "<i>改动后需点「📝 时间表 → 🔄 重新生成时间表」生效</i>"
+    )
     kb = [
-        [InlineKeyboardButton("10%", callback_data="xfer:setpct:0.10"),
-         InlineKeyboardButton("20%", callback_data="xfer:setpct:0.20"),
-         InlineKeyboardButton("30%", callback_data="xfer:setpct:0.30")],
-        [InlineKeyboardButton("40%", callback_data="xfer:setpct:0.40"),
-         InlineKeyboardButton("50%", callback_data="xfer:setpct:0.50"),
-         InlineKeyboardButton("70%", callback_data="xfer:setpct:0.70")],
+        [InlineKeyboardButton("0 次",  callback_data="xfer:setcnt:0"),
+         InlineKeyboardButton("1 次",  callback_data="xfer:setcnt:1"),
+         InlineKeyboardButton("2 次",  callback_data="xfer:setcnt:2")],
+        [InlineKeyboardButton("3 次",  callback_data="xfer:setcnt:3"),
+         InlineKeyboardButton("5 次",  callback_data="xfer:setcnt:5"),
+         InlineKeyboardButton("10 次", callback_data="xfer:setcnt:10")],
+        [InlineKeyboardButton("🔙 转账控制", callback_data="xfer")],
+    ]
+    return text, InlineKeyboardMarkup(kb)
+
+
+def _xfer_pct_menu() -> tuple[str, InlineKeyboardMarkup]:
+    pct_min = overrides.get_param("TRANSFER_PCT_MIN")
+    pct_max = overrides.get_param("TRANSFER_PCT_MAX")
+    if pct_min is not None and pct_max is not None:
+        cur = f"{float(pct_min)*100:.0f}% ~ {float(pct_max)*100:.0f}%（区间随机）"
+    else:
+        fixed = float(overrides.get_param("TRANSFER_PCT") or 0.30)
+        cur = f"{fixed*100:.0f}%（固定）"
+
+    text = (
+        "📊 <b>转账比例</b>\n\n"
+        f"当前: <b>{cur}</b>\n\n"
+        "• <b>固定比例</b>：每次都转相同百分比\n"
+        "• <b>区间随机</b>：每次在区间内随机（更像真人）"
+    )
+    kb = [
+        [InlineKeyboardButton("固定 10%", callback_data="xfer:fix:0.10"),
+         InlineKeyboardButton("固定 30%", callback_data="xfer:fix:0.30"),
+         InlineKeyboardButton("固定 50%", callback_data="xfer:fix:0.50")],
+        [InlineKeyboardButton("区间 10~30%", callback_data="xfer:rng:0.10:0.30"),
+         InlineKeyboardButton("区间 20~50%", callback_data="xfer:rng:0.20:0.50")],
+        [InlineKeyboardButton("区间 30~70%", callback_data="xfer:rng:0.30:0.70"),
+         InlineKeyboardButton("区间 50~90%", callback_data="xfer:rng:0.50:0.90")],
         [InlineKeyboardButton("🔙 转账控制", callback_data="xfer")],
     ]
     return text, InlineKeyboardMarkup(kb)
@@ -397,10 +441,12 @@ def _xfer_pct_menu() -> tuple[str, InlineKeyboardMarkup]:
 # ── 💰 V3 手续费 ──────────────────────────────────────────────
 def _claim_menu() -> tuple[str, InlineKeyboardMarkup]:
     enabled = executor.get_enabled()["claim_fee"]
+    n_claim = int(overrides.get_param("CLAIMS_PER_WALLET_DAY") or 1)
     text = (
         "💰 <b>Uniswap V3 手续费控制</b>\n\n"
-        f"Claim 开关: <b>{'✅ 启用' if enabled else '❌ 禁用'}</b>\n\n"
-        "规则: 每个钱包每日随机时间领取一次\n"
+        f"Claim 开关: <b>{'✅ 启用' if enabled else '❌ 禁用'}</b>\n"
+        f"每钱包每日领取次数: <b>{n_claim}</b>\n\n"
+        "规则: 每个钱包按此次数随机时间领取\n"
         "可手动立即触发某钱包或全部钱包领取"
     )
     kb = [
@@ -410,7 +456,22 @@ def _claim_menu() -> tuple[str, InlineKeyboardMarkup]:
         )],
         [InlineKeyboardButton("🎯 某钱包立即领取",   callback_data="swap:pick:claim_fee:0")],
         [InlineKeyboardButton("🌟 全部钱包立即领取", callback_data="manual_all:claim_fee")],
+        [InlineKeyboardButton("🔢 领取笔数 / 天",   callback_data="claim:count")],
         [_back_btn()],
+    ]
+    return text, InlineKeyboardMarkup(kb)
+
+
+def _claim_count_menu() -> tuple[str, InlineKeyboardMarkup]:
+    cur = int(overrides.get_param("CLAIMS_PER_WALLET_DAY") or 1)
+    text = f"🔢 <b>每钱包每日领费次数</b>\n\n当前: <b>{cur}</b> 次"
+    kb = [
+        [InlineKeyboardButton("0 次", callback_data="claim:setcnt:0"),
+         InlineKeyboardButton("1 次", callback_data="claim:setcnt:1"),
+         InlineKeyboardButton("2 次", callback_data="claim:setcnt:2")],
+        [InlineKeyboardButton("3 次", callback_data="claim:setcnt:3"),
+         InlineKeyboardButton("5 次", callback_data="claim:setcnt:5")],
+        [InlineKeyboardButton("🔙 V3 手续费", callback_data="claim")],
     ]
     return text, InlineKeyboardMarkup(kb)
 
@@ -532,7 +593,138 @@ def _params_menu() -> tuple[str, InlineKeyboardMarkup]:
     return text, InlineKeyboardMarkup(kb)
 
 
-# ── 📊 今日统计 ───────────────────────────────────────────────
+# ── 🎰 随机性调节 ────────────────────────────────────────────
+def _rand_menu() -> tuple[str, InlineKeyboardMarkup]:
+    gap     = int(overrides.get_param("MIN_GAP_SECONDS") or 20)
+    buy_p   = float(overrides.get_param("BUY_PROBABILITY") or 0.5)
+    sr_min  = float(overrides.get_param("SELL_RATIO_MIN") or 0.3)
+    sr_max  = float(overrides.get_param("SELL_RATIO_MAX") or 0.7)
+    jitter  = float(overrides.get_param("AMOUNT_JITTER_PCT") or 0.0)
+
+    text = (
+        "🎰 <b>随机性调节</b>\n\n"
+        f"⏱ 事件最小间隔: <b>{gap}s</b>\n"
+        f"💵 买入概率: <b>{buy_p*100:.0f}%</b>  (卖出 {(1-buy_p)*100:.0f}%)\n"
+        f"💸 卖出比例区间: <b>{sr_min*100:.0f}% ~ {sr_max*100:.0f}%</b>\n"
+        f"🎯 金额抖动: <b>±{jitter*100:.0f}%</b>\n\n"
+        "<i>所有参数立即生效（下一笔交易开始使用新值）</i>"
+    )
+    kb = [
+        [InlineKeyboardButton("⏱ 调整间隔", callback_data="rand:gap"),
+         InlineKeyboardButton("💵 买卖概率", callback_data="rand:buyp")],
+        [InlineKeyboardButton("💸 卖出比例", callback_data="rand:sellr"),
+         InlineKeyboardButton("🎯 金额抖动", callback_data="rand:jit")],
+        [InlineKeyboardButton("🎲 预设：谨慎", callback_data="rand:preset:safe"),
+         InlineKeyboardButton("🎲 标准",       callback_data="rand:preset:normal"),
+         InlineKeyboardButton("🎲 激进",       callback_data="rand:preset:wild")],
+        [_back_btn()],
+    ]
+    return text, InlineKeyboardMarkup(kb)
+
+
+def _rand_gap_menu() -> tuple[str, InlineKeyboardMarkup]:
+    cur = int(overrides.get_param("MIN_GAP_SECONDS") or 20)
+    text = (
+        f"⏱ <b>事件最小间隔</b>\n\n当前: <b>{cur} 秒</b>\n\n"
+        "时间表里任意两个事件至少相隔这么多秒，\n"
+        "数值越大，交易时间分散越明显（更难被识别）"
+    )
+    kb = [
+        [InlineKeyboardButton("5s",  callback_data="rand:setgap:5"),
+         InlineKeyboardButton("10s", callback_data="rand:setgap:10"),
+         InlineKeyboardButton("20s", callback_data="rand:setgap:20")],
+        [InlineKeyboardButton("30s", callback_data="rand:setgap:30"),
+         InlineKeyboardButton("60s", callback_data="rand:setgap:60"),
+         InlineKeyboardButton("120s",callback_data="rand:setgap:120")],
+        [InlineKeyboardButton("🔙 随机性", callback_data="rand")],
+    ]
+    return text, InlineKeyboardMarkup(kb)
+
+
+def _rand_buyp_menu() -> tuple[str, InlineKeyboardMarkup]:
+    cur = float(overrides.get_param("BUY_PROBABILITY") or 0.5)
+    text = (
+        f"💵 <b>买入概率</b>\n\n当前: <b>{cur*100:.0f}% 买</b> / {(1-cur)*100:.0f}% 卖\n\n"
+        "有持仓时，按此概率决定这一笔是买还是卖。"
+    )
+    kb = [
+        [InlineKeyboardButton("20% 买",  callback_data="rand:setbuyp:0.2"),
+         InlineKeyboardButton("35% 买",  callback_data="rand:setbuyp:0.35"),
+         InlineKeyboardButton("50% 买",  callback_data="rand:setbuyp:0.5")],
+        [InlineKeyboardButton("65% 买",  callback_data="rand:setbuyp:0.65"),
+         InlineKeyboardButton("80% 买",  callback_data="rand:setbuyp:0.8")],
+        [InlineKeyboardButton("🔙 随机性", callback_data="rand")],
+    ]
+    return text, InlineKeyboardMarkup(kb)
+
+
+def _rand_sellr_menu() -> tuple[str, InlineKeyboardMarkup]:
+    lo = float(overrides.get_param("SELL_RATIO_MIN") or 0.3)
+    hi = float(overrides.get_param("SELL_RATIO_MAX") or 0.7)
+    text = (
+        f"💸 <b>卖出比例区间</b>\n\n当前: <b>{lo*100:.0f}% ~ {hi*100:.0f}%</b>\n\n"
+        "每次卖出时，在此区间内随机决定卖多少持仓。"
+    )
+    kb = [
+        [InlineKeyboardButton("10~30%", callback_data="rand:setsr:0.1:0.3"),
+         InlineKeyboardButton("20~50%", callback_data="rand:setsr:0.2:0.5"),
+         InlineKeyboardButton("30~70%", callback_data="rand:setsr:0.3:0.7")],
+        [InlineKeyboardButton("40~80%", callback_data="rand:setsr:0.4:0.8"),
+         InlineKeyboardButton("50~100%",callback_data="rand:setsr:0.5:1.0")],
+        [InlineKeyboardButton("🔙 随机性", callback_data="rand")],
+    ]
+    return text, InlineKeyboardMarkup(kb)
+
+
+def _rand_jit_menu() -> tuple[str, InlineKeyboardMarkup]:
+    cur = float(overrides.get_param("AMOUNT_JITTER_PCT") or 0.0)
+    text = (
+        f"🎯 <b>金额抖动</b>\n\n当前: <b>±{cur*100:.0f}%</b>\n\n"
+        "每笔在基础区间金额上再随机扰动 ±X%，\n"
+        "使金额更不可预测（0 = 关闭）。"
+    )
+    kb = [
+        [InlineKeyboardButton("0% (关闭)", callback_data="rand:setjit:0"),
+         InlineKeyboardButton("±10%",      callback_data="rand:setjit:0.10"),
+         InlineKeyboardButton("±20%",      callback_data="rand:setjit:0.20")],
+        [InlineKeyboardButton("±30%",      callback_data="rand:setjit:0.30"),
+         InlineKeyboardButton("±50%",      callback_data="rand:setjit:0.50"),
+         InlineKeyboardButton("±80%",      callback_data="rand:setjit:0.80")],
+        [InlineKeyboardButton("🔙 随机性", callback_data="rand")],
+    ]
+    return text, InlineKeyboardMarkup(kb)
+
+
+# 🎲 随机性预设
+_RAND_PRESETS = {
+    # 谨慎：间隔大，买卖接近对称，卖出幅度小，抖动小
+    "safe": {
+        "MIN_GAP_SECONDS":   60,
+        "BUY_PROBABILITY":   0.5,
+        "SELL_RATIO_MIN":    0.2,
+        "SELL_RATIO_MAX":    0.5,
+        "AMOUNT_JITTER_PCT": 0.10,
+    },
+    # 标准：默认配置
+    "normal": {
+        "MIN_GAP_SECONDS":   20,
+        "BUY_PROBABILITY":   0.5,
+        "SELL_RATIO_MIN":    0.3,
+        "SELL_RATIO_MAX":    0.7,
+        "AMOUNT_JITTER_PCT": 0.20,
+    },
+    # 激进：间隔小，买多卖少（更积攒持仓），抖动大
+    "wild": {
+        "MIN_GAP_SECONDS":   10,
+        "BUY_PROBABILITY":   0.65,
+        "SELL_RATIO_MIN":    0.4,
+        "SELL_RATIO_MAX":    0.9,
+        "AMOUNT_JITTER_PCT": 0.50,
+    },
+}
+
+
+
 def _stats_menu() -> tuple[str, InlineKeyboardMarkup]:
     s = ledger.get_today_summary()
     text = (
@@ -620,6 +812,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             t, kb = _gas_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
         if cmd == "params" and len(parts) == 1:
             t, kb = _params_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "rand" and len(parts) == 1:
+            t, kb = _rand_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
         if cmd == "stats" and len(parts) == 1:
             t, kb = _stats_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
         if cmd == "status" and len(parts) == 1:
@@ -710,22 +904,46 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             t, kb = _pick_wallet_menu(action, page)
             await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
 
-        # ── 📤 Transfer 开关 + 比例 ──────────────────────────
+        # ── 📤 Transfer 开关 + 笔数 + 比例 ───────────────────
         if cmd == "xfer" and parts[1] == "toggle":
             cur = executor.get_enabled()["transfer"]
             executor.set_enabled("transfer", not cur)
             t, kb = _xfer_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "xfer" and parts[1] == "count":
+            t, kb = _xfer_count_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "xfer" and parts[1] == "setcnt":
+            overrides.set_param("TRANSFERS_PER_WALLET_DAY", int(parts[2]))
+            await q.answer("✅ 已保存，下次重新生成时间表生效", show_alert=False)
+            t, kb = _xfer_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
         if cmd == "xfer" and parts[1] == "pct":
             t, kb = _xfer_pct_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "xfer" and parts[1] == "fix":
+            # 固定比例：清除区间，设置 TRANSFER_PCT
+            overrides.reset_param("TRANSFER_PCT_MIN")
+            overrides.reset_param("TRANSFER_PCT_MAX")
+            overrides.set_param("TRANSFER_PCT", float(parts[2]))
+            t, kb = _xfer_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "xfer" and parts[1] == "rng":
+            overrides.set_param("TRANSFER_PCT_MIN", float(parts[2]))
+            overrides.set_param("TRANSFER_PCT_MAX", float(parts[3]))
+            t, kb = _xfer_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        # 兼容旧按钮：setpct 作为固定比例
         if cmd == "xfer" and parts[1] == "setpct":
-            v = float(parts[2])
-            overrides.set_param("TRANSFER_PCT", v)
+            overrides.reset_param("TRANSFER_PCT_MIN")
+            overrides.reset_param("TRANSFER_PCT_MAX")
+            overrides.set_param("TRANSFER_PCT", float(parts[2]))
             t, kb = _xfer_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
 
-        # ── 💰 Claim 开关 ─────────────────────────────────────
+        # ── 💰 Claim 开关 + 笔数 ─────────────────────────────
         if cmd == "claim" and parts[1] == "toggle":
             cur = executor.get_enabled()["claim_fee"]
             executor.set_enabled("claim_fee", not cur)
+            t, kb = _claim_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "claim" and parts[1] == "count":
+            t, kb = _claim_count_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "claim" and parts[1] == "setcnt":
+            overrides.set_param("CLAIMS_PER_WALLET_DAY", int(parts[2]))
+            await q.answer("✅ 已保存，下次重新生成时间表生效", show_alert=False)
             t, kb = _claim_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
 
         # ── 🎯 手动触发（单钱包）──────────────────────────────
@@ -786,6 +1004,36 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             overrides.reset_all()
             await q.answer("✅ 已重置全部参数到默认值", show_alert=True)
             t, kb = _params_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+
+        # ── 🎰 随机性调节 ────────────────────────────────────
+        if cmd == "rand" and parts[1] == "gap":
+            t, kb = _rand_gap_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "rand" and parts[1] == "setgap":
+            overrides.set_param("MIN_GAP_SECONDS", int(parts[2]))
+            t, kb = _rand_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "rand" and parts[1] == "buyp":
+            t, kb = _rand_buyp_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "rand" and parts[1] == "setbuyp":
+            overrides.set_param("BUY_PROBABILITY", float(parts[2]))
+            t, kb = _rand_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "rand" and parts[1] == "sellr":
+            t, kb = _rand_sellr_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "rand" and parts[1] == "setsr":
+            overrides.set_param("SELL_RATIO_MIN", float(parts[2]))
+            overrides.set_param("SELL_RATIO_MAX", float(parts[3]))
+            t, kb = _rand_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "rand" and parts[1] == "jit":
+            t, kb = _rand_jit_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "rand" and parts[1] == "setjit":
+            overrides.set_param("AMOUNT_JITTER_PCT", float(parts[2]))
+            t, kb = _rand_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
+        if cmd == "rand" and parts[1] == "preset":
+            preset = _RAND_PRESETS.get(parts[2])
+            if preset:
+                for k, v in preset.items():
+                    overrides.set_param(k, v)
+                await q.answer(f"✅ 已应用预设: {parts[2]}", show_alert=False)
+            t, kb = _rand_menu(); await q.edit_message_text(t, reply_markup=kb, parse_mode="HTML"); return
 
         # 兜底
         await q.answer("⚠️ 未知操作")

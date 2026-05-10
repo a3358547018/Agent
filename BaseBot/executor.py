@@ -152,9 +152,15 @@ def is_running() -> bool:
 # ══════════════════════════════════════════════════════════════
 
 def _random_eth_amount() -> float:
-    lo = float(get_param("TX_AMOUNT_MIN_ETH") or 0.000001)
-    hi = float(get_param("TX_AMOUNT_MAX_ETH") or 0.000003)
-    return round(random.uniform(lo, hi), 8)
+    lo     = float(get_param("TX_AMOUNT_MIN_ETH") or 0.000001)
+    hi     = float(get_param("TX_AMOUNT_MAX_ETH") or 0.000003)
+    jitter = float(get_param("AMOUNT_JITTER_PCT") or 0.0)
+    base   = random.uniform(lo, hi)
+    if jitter > 0:
+        # ±jitter 百分比扰动
+        factor = 1 + random.uniform(-jitter, jitter)
+        base   = max(lo * 0.5, base * factor)
+    return round(base, 10)
 
 
 def _handle_swap(w3, wallet: dict, tokens_allocated: list[dict],
@@ -171,10 +177,12 @@ def _handle_swap(w3, wallet: dict, tokens_allocated: list[dict],
 
     if forced_action in ("buy", "sell"):
         action = forced_action
-    elif not holding_tokens or random.random() < 0.5:
-        action = "buy"
     else:
-        action = "sell"
+        buy_prob = float(get_param("BUY_PROBABILITY") or 0.5)
+        if not holding_tokens or random.random() < buy_prob:
+            action = "buy"
+        else:
+            action = "sell"
 
     if action == "buy":
         if not tokens_allocated:
@@ -200,8 +208,12 @@ def _handle_swap(w3, wallet: dict, tokens_allocated: list[dict],
         info     = holdings[tok_addr]
         decimals = swap_engine.get_token_decimals(w3, tok_addr)
 
-        # 卖出持仓的 30-70%
-        ratio      = random.uniform(0.3, 0.7)
+        # 卖出持仓的 ratio 比例（可调）
+        r_min = float(get_param("SELL_RATIO_MIN") or 0.3)
+        r_max = float(get_param("SELL_RATIO_MAX") or 0.7)
+        if r_max < r_min:
+            r_max = r_min
+        ratio      = random.uniform(r_min, r_max)
         amount_raw = int(info["balance"] * ratio * (10 ** decimals))
         if amount_raw == 0:
             return False
@@ -235,7 +247,17 @@ def _handle_transfer(w3, wallet: dict, all_wallet_addrs: set[str],
         logger.info(f"[Executor] 钱包 #{widx} 无可转代币，跳过 transfer")
         return False
 
-    transfer_pct = float(get_param("TRANSFER_PCT") or 0.30)
+    # 转账比例：支持区间随机（TRANSFER_PCT_MIN/MAX），否则用固定 TRANSFER_PCT
+    pct_min = get_param("TRANSFER_PCT_MIN")
+    pct_max = get_param("TRANSFER_PCT_MAX")
+    if pct_min is not None and pct_max is not None:
+        lo, hi = float(pct_min), float(pct_max)
+        if hi < lo:
+            hi = lo
+        transfer_pct = random.uniform(lo, hi)
+    else:
+        transfer_pct = float(get_param("TRANSFER_PCT") or 0.30)
+
     token_addr, info = random.choice(candidates)
     decimals   = swap_engine.get_token_decimals(w3, token_addr)
     amount_raw = int(info["balance"] * transfer_pct * (10 ** decimals))

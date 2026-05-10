@@ -23,8 +23,8 @@ from overrides import get_param
 
 logger = logging.getLogger(__name__)
 
-# 任何两笔交易之间的最小间隔（秒），避免同一时刻并发
-MIN_GAP_SECONDS = 20
+# 默认最小间隔（秒），可被 overrides.MIN_GAP_SECONDS 覆盖
+_DEFAULT_GAP = 20
 
 _SCHEDULE_LOCK = Lock()
 
@@ -32,6 +32,7 @@ _SCHEDULE_LOCK = Lock()
 def _pick_unique_timestamps(n: int, day_start: datetime, day_end: datetime, existing: set[int]) -> list[datetime]:
     """在 [day_start, day_end) 内生成 n 个不重叠时间点。"""
     total_seconds = int((day_end - day_start).total_seconds())
+    gap_s = int(get_param("MIN_GAP_SECONDS") or _DEFAULT_GAP)
     picked = []
     attempts = 0
     max_attempts = n * 200
@@ -42,12 +43,12 @@ def _pick_unique_timestamps(n: int, day_start: datetime, day_end: datetime, exis
 
         too_close = False
         for t in existing:
-            if abs(candidate - t) < MIN_GAP_SECONDS:
+            if abs(candidate - t) < gap_s:
                 too_close = True
                 break
         if not too_close:
             for p in picked:
-                if abs(candidate - int(p.timestamp())) < MIN_GAP_SECONDS:
+                if abs(candidate - int(p.timestamp())) < gap_s:
                     too_close = True
                     break
 
@@ -70,8 +71,10 @@ def generate_daily_schedule(target_date: date = None) -> list[dict]:
     day_end     = day_start + timedelta(days=1)
 
     # 从 overrides 读取最新参数（TG 可实时调整）
-    min_tx = int(get_param("MIN_TX_PER_WALLET_DAY") or 3)
-    max_tx = int(get_param("MAX_TX_PER_WALLET_DAY") or 10)
+    min_tx      = int(get_param("MIN_TX_PER_WALLET_DAY") or 3)
+    max_tx      = int(get_param("MAX_TX_PER_WALLET_DAY") or 10)
+    n_transfers = int(get_param("TRANSFERS_PER_WALLET_DAY") or 1)
+    n_claims    = int(get_param("CLAIMS_PER_WALLET_DAY")    or 1)
     if max_tx < min_tx:
         max_tx = min_tx
 
@@ -80,16 +83,13 @@ def generate_daily_schedule(target_date: date = None) -> list[dict]:
 
     for widx in range(WALLETS_COUNT):
         n_swaps = random.randint(min_tx, max_tx)
-        swap_times = _pick_unique_timestamps(n_swaps, day_start, day_end, used_seconds)
-        for t in swap_times:
+        for t in _pick_unique_timestamps(n_swaps, day_start, day_end, used_seconds):
             all_events.append({"time": t.isoformat(), "wallet": widx, "type": "swap"})
 
-        transfer_times = _pick_unique_timestamps(1, day_start, day_end, used_seconds)
-        for t in transfer_times:
+        for t in _pick_unique_timestamps(n_transfers, day_start, day_end, used_seconds):
             all_events.append({"time": t.isoformat(), "wallet": widx, "type": "transfer"})
 
-        claim_times = _pick_unique_timestamps(1, day_start, day_end, used_seconds)
-        for t in claim_times:
+        for t in _pick_unique_timestamps(n_claims, day_start, day_end, used_seconds):
             all_events.append({"time": t.isoformat(), "wallet": widx, "type": "claim_fee"})
 
     all_events.sort(key=lambda e: e["time"])
