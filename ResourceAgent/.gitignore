@@ -1,0 +1,14 @@
+# ⚠️ 敏感文件 — 不上传 GitHub
+config.py
+data/
+logs/
+*.session
+*.session-journal
+twitter_session.json
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.env
+venv/
+.venv/
