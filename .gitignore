@@ -1,0 +1,17 @@
+# 不要把 API Key 传到 GitHub！
+config.py
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+
+# 日志
+logs/
+*.log
+
+# 虚拟环境
+venv/
+.venv/
+env/
