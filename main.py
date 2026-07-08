@@ -9,6 +9,7 @@ main.py — 空投项目发掘助手主入口
 import argparse
 import time
 import schedule
+import concurrent.futures
 from datetime import date
 
 import rootdata
@@ -24,27 +25,27 @@ def run_daily_job():
     today_str = today.strftime("%Y-%m-%d")
     print(f"[{today_str}] ⏰ 开始执行每日空投日报任务…")
 
-    # ── 并行抓取（顺序调用，简单可靠） ───────────────────────
-    print("  → 抓取 RootData 融资数据…")
-    rd_funding  = rootdata.get_daily_funding(today)
+    # ── 并行抓取 ──────────────────────────────────────────────
+    # ⚡ Bolt: 使用 ThreadPoolExecutor 并行执行 7 个独立网络请求
+    # 显著缩短总等待时间，从累积延迟转变为最大单请求延迟
+    print("  → 正在并行抓取所有数据源…")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+        f_rd_funding  = executor.submit(rootdata.get_daily_funding, today)
+        f_rd_events   = executor.submit(rootdata.get_project_events, today)
+        f_rd_new_proj = executor.submit(rootdata.get_new_projects, days=1)
+        f_rd_tge      = executor.submit(rootdata.get_upcoming_tge, days_ahead=7)
+        f_cr_funding  = executor.submit(cryptorank.get_daily_funding, today)
+        f_cr_ido      = executor.submit(cryptorank.get_upcoming_ido, days_ahead=7)
+        f_okboost     = executor.submit(okboost.get_daily_okboost, today)
 
-    print("  → 抓取 RootData 项目动态…")
-    rd_events   = rootdata.get_project_events(today)
-
-    print("  → 抓取 RootData 新收录项目…")
-    rd_new_proj = rootdata.get_new_projects(days=1)
-
-    print("  → 抓取 RootData TGE 信息…")
-    rd_tge      = rootdata.get_upcoming_tge(days_ahead=7)
-
-    print("  → 抓取 CryptoRank 融资数据…")
-    cr_funding  = cryptorank.get_daily_funding(today)
-
-    print("  → 抓取 CryptoRank IDO 信息…")
-    cr_ido      = cryptorank.get_upcoming_ido(days_ahead=7)
-
-    print("  → 抓取 OKBoost 动态…")
-    okboost_data = okboost.get_daily_okboost(today)
+        # 等待并获取结果
+        rd_funding   = f_rd_funding.result()
+        rd_events    = f_rd_events.result()
+        rd_new_proj  = f_rd_new_proj.result()
+        rd_tge       = f_rd_tge.result()
+        cr_funding   = f_cr_funding.result()
+        cr_ido       = f_cr_ido.result()
+        okboost_data = f_okboost.result()
 
     # ── 格式化报告 ────────────────────────────────────────────
     report = fmt_daily_report(
