@@ -14,6 +14,10 @@ from email.utils import parsedate_to_datetime
 
 OKX_RSS_URL = "https://www.okx.com/help-center/rss.xml"
 
+# 使用 Session 实现连接复用
+_session = requests.Session()
+_session.headers.update({"User-Agent": "Mozilla/5.0"})
+
 # 关键词列表——命中其一即纳入推送
 BOOST_KEYWORDS = [
     "boost", "launchpool", "launchpad",
@@ -26,8 +30,7 @@ BOOST_KEYWORDS = [
 def _fetch_rss() -> list[dict]:
     """拉取并解析 OKX RSS，返回条目列表。"""
     try:
-        resp = requests.get(OKX_RSS_URL, timeout=15,
-                            headers={"User-Agent": "Mozilla/5.0"})
+        resp = _session.get(OKX_RSS_URL, timeout=15)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
     except Exception as e:
