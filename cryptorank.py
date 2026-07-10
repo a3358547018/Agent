@@ -16,13 +16,16 @@ from config import CRYPTORANK_API_KEY
 
 BASE_V2 = "https://api.cryptorank.io/v2"
 
+# 使用 Session 实现连接池
+session = requests.Session()
+
 
 def _get(endpoint: str, params: dict = None) -> dict:
     """统一 GET 请求，返回 data 字段；出错返回 {}。"""
     url = BASE_V2 + endpoint
     headers = {"X-Api-Key": CRYPTORANK_API_KEY}
     try:
-        resp = requests.get(url, params=params or {}, headers=headers, timeout=15)
+        resp = session.get(url, params=params or {}, headers=headers, timeout=15)
         resp.raise_for_status()
         body = resp.json()
         # V2 返回结构通常是 {"data": [...], "meta": {...}}
