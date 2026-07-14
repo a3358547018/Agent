@@ -14,6 +14,9 @@ from config import ROOTDATA_API_KEY
 
 BASE_URL = "https://api.rootdata.com/open"
 
+# 使用 Session 启用连接池
+session = requests.Session()
+
 HEADERS = {
     "apikey": ROOTDATA_API_KEY,
     "Content-Type": "application/json",
@@ -25,7 +28,7 @@ def _post(endpoint: str, payload: dict) -> dict:
     """统一 POST 请求封装，返回 data 字段；出错返回空 dict。"""
     url = BASE_URL + endpoint
     try:
-        resp = requests.post(url, json=payload, headers=HEADERS, timeout=15)
+        resp = session.post(url, json=payload, headers=HEADERS, timeout=15)
         resp.raise_for_status()
         body = resp.json()
         if body.get("result") is True or body.get("code") == 200:
