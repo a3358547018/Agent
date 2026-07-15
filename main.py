@@ -10,6 +10,7 @@ import argparse
 import time
 import schedule
 from datetime import date
+from concurrent.futures import ThreadPoolExecutor
 
 import rootdata
 import cryptorank
@@ -24,27 +25,26 @@ def run_daily_job():
     today_str = today.strftime("%Y-%m-%d")
     print(f"[{today_str}] ⏰ 开始执行每日空投日报任务…")
 
-    # ── 并行抓取（顺序调用，简单可靠） ───────────────────────
-    print("  → 抓取 RootData 融资数据…")
-    rd_funding  = rootdata.get_daily_funding(today)
+    # ── 并行抓取（使用 ThreadPoolExecutor 提高效率） ──────────
+    print("  → 正在并行抓取各项数据…")
+    with ThreadPoolExecutor(max_workers=7) as executor:
+        # 提交所有抓取任务
+        future_rd_funding  = executor.submit(rootdata.get_daily_funding, today)
+        future_rd_events   = executor.submit(rootdata.get_project_events, today)
+        future_rd_new_proj = executor.submit(rootdata.get_new_projects, days=1)
+        future_rd_tge      = executor.submit(rootdata.get_upcoming_tge, days_ahead=7)
+        future_cr_funding  = executor.submit(cryptorank.get_daily_funding, today)
+        future_cr_ido      = executor.submit(cryptorank.get_upcoming_ido, days_ahead=7)
+        future_okboost     = executor.submit(okboost.get_daily_okboost, today)
 
-    print("  → 抓取 RootData 项目动态…")
-    rd_events   = rootdata.get_project_events(today)
-
-    print("  → 抓取 RootData 新收录项目…")
-    rd_new_proj = rootdata.get_new_projects(days=1)
-
-    print("  → 抓取 RootData TGE 信息…")
-    rd_tge      = rootdata.get_upcoming_tge(days_ahead=7)
-
-    print("  → 抓取 CryptoRank 融资数据…")
-    cr_funding  = cryptorank.get_daily_funding(today)
-
-    print("  → 抓取 CryptoRank IDO 信息…")
-    cr_ido      = cryptorank.get_upcoming_ido(days_ahead=7)
-
-    print("  → 抓取 OKBoost 动态…")
-    okboost_data = okboost.get_daily_okboost(today)
+        # 获取并发执行结果
+        rd_funding  = future_rd_funding.result()
+        rd_events   = future_rd_events.result()
+        rd_new_proj = future_rd_new_proj.result()
+        rd_tge      = future_rd_tge.result()
+        cr_funding  = future_cr_funding.result()
+        cr_ido      = future_cr_ido.result()
+        okboost_data = future_okboost.result()
 
     # ── 格式化报告 ────────────────────────────────────────────
     report = fmt_daily_report(
