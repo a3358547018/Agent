@@ -22,12 +22,15 @@ BOOST_KEYWORDS = [
     "上新", "上线", "okb", "okboost",
 ]
 
+# ⚡ Bolt: Use a persistent requests.Session to enable connection pooling and reuse
+_session = requests.Session()
+_session.headers.update({"User-Agent": "Mozilla/5.0"})
+
 
 def _fetch_rss() -> list[dict]:
     """拉取并解析 OKX RSS，返回条目列表。"""
     try:
-        resp = requests.get(OKX_RSS_URL, timeout=15,
-                            headers={"User-Agent": "Mozilla/5.0"})
+        resp = _session.get(OKX_RSS_URL, timeout=15)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
     except Exception as e:
