@@ -16,13 +16,17 @@ from config import CRYPTORANK_API_KEY
 
 BASE_V2 = "https://api.cryptorank.io/v2"
 
+# ── ⚡ Bolt: 使用模块级 Session 以支持连接池并复用 TCP/TLS 连接 ──
+session = requests.Session()
+session.headers.update({"X-Api-Key": CRYPTORANK_API_KEY})
+
 
 def _get(endpoint: str, params: dict = None) -> dict:
     """统一 GET 请求，返回 data 字段；出错返回 {}。"""
     url = BASE_V2 + endpoint
-    headers = {"X-Api-Key": CRYPTORANK_API_KEY}
     try:
-        resp = requests.get(url, params=params or {}, headers=headers, timeout=15)
+        # 复用 Session 的连接池
+        resp = session.get(url, params=params or {}, timeout=15)
         resp.raise_for_status()
         body = resp.json()
         # V2 返回结构通常是 {"data": [...], "meta": {...}}

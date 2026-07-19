@@ -20,12 +20,17 @@ HEADERS = {
     "language": "cn",        # 返回中文内容；改成 "en" 可切换英文
 }
 
+# ── ⚡ Bolt: 使用模块级 Session 以支持连接池并复用 TCP/TLS 连接 ──
+session = requests.Session()
+session.headers.update(HEADERS)
+
 
 def _post(endpoint: str, payload: dict) -> dict:
     """统一 POST 请求封装，返回 data 字段；出错返回空 dict。"""
     url = BASE_URL + endpoint
     try:
-        resp = requests.post(url, json=payload, headers=HEADERS, timeout=15)
+        # 复用 Session 的连接池
+        resp = session.post(url, json=payload, timeout=15)
         resp.raise_for_status()
         body = resp.json()
         if body.get("result") is True or body.get("code") == 200:
