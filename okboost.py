@@ -22,12 +22,16 @@ BOOST_KEYWORDS = [
     "上新", "上线", "okb", "okboost",
 ]
 
+# ── ⚡ Bolt: 使用模块级 Session 以支持连接池并复用 TCP/TLS 连接 ──
+session = requests.Session()
+session.headers.update({"User-Agent": "Mozilla/5.0"})
+
 
 def _fetch_rss() -> list[dict]:
     """拉取并解析 OKX RSS，返回条目列表。"""
     try:
-        resp = requests.get(OKX_RSS_URL, timeout=15,
-                            headers={"User-Agent": "Mozilla/5.0"})
+        # 复用 Session 的连接池
+        resp = session.get(OKX_RSS_URL, timeout=15)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
     except Exception as e:
