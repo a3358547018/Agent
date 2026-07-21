@@ -27,6 +27,10 @@ def _esc(s) -> str:
     return html.escape(str(s), quote=False)
 
 
+# Module-level requests.Session() to enable HTTP connection pooling
+_session = requests.Session()
+
+
 def _send_chunk(text: str) -> bool:
     """发送单条消息（HTML 格式）。"""
     url  = f"{TG_API_BASE}/sendMessage"
@@ -37,7 +41,7 @@ def _send_chunk(text: str) -> bool:
         "disable_web_page_preview": True,
     }
     try:
-        resp = requests.post(url, data=data, timeout=15)
+        resp = _session.post(url, data=data, timeout=15)
         if not resp.ok:
             logger.error(f"[TG] 发送失败: {resp.status_code} {resp.text[:300]}")
             return False
