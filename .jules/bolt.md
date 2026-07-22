@@ -1,0 +1,3 @@
+## 2026-05-10 - Mocking Connection Pools and Fault-Tolerant Parallel Fetching
+**Learning:** In Python, introducing module-level `requests.Session()` is a massive performance win for connection pooling. However, it changes the mock testing surface: we must patch `requests.Session.request` as the single unified integration point. Furthermore, using `ThreadPoolExecutor` to fetch independent API data requires wrapping individual `.result()` calls in try/except blocks to ensure individual API failures don't crash the entire aggregator run.
+**Action:** Patch `requests.Session.request` for all tests involving pooled requests, and always wrap futures retrieval with robust exception fallbacks to preserve overall system resilience.

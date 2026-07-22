@@ -27,6 +27,10 @@ def _esc(s) -> str:
     return html.escape(str(s), quote=False)
 
 
+# 模块级 Session 启用 HTTP 连接池复用
+session = requests.Session()
+
+
 def _send_chunk(text: str) -> bool:
     """发送单条消息（HTML 格式）。"""
     url  = f"{TG_API_BASE}/sendMessage"
@@ -37,7 +41,8 @@ def _send_chunk(text: str) -> bool:
         "disable_web_page_preview": True,
     }
     try:
-        resp = requests.post(url, data=data, timeout=15)
+        # 使用 requests.Session 提升性能，避免重复 TCP 手续与握手
+        resp = session.post(url, data=data, timeout=15)
         if not resp.ok:
             logger.error(f"[TG] 发送失败: {resp.status_code} {resp.text[:300]}")
             return False
