@@ -23,11 +23,16 @@ BOOST_KEYWORDS = [
 ]
 
 
+# 模块级 Session 启用 HTTP 连接池复用
+session = requests.Session()
+
+
 def _fetch_rss() -> list[dict]:
     """拉取并解析 OKX RSS，返回条目列表。"""
     try:
-        resp = requests.get(OKX_RSS_URL, timeout=15,
-                            headers={"User-Agent": "Mozilla/5.0"})
+        # 使用 requests.Session 提升性能，避免重复 TCP 手续与握手
+        resp = session.get(OKX_RSS_URL, timeout=15,
+                           headers={"User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
     except Exception as e:
