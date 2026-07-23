@@ -1,0 +1,3 @@
+## 2026-07-23 - Concurrent I/O Scraping and HTTP Connection Pooling
+**Learning:** Sequential, synchronous network scraping calls act as a major performance bottleneck in periodic or discovery job architectures. In this codebase, the 7 independent data-fetching APIs were invoked one-by-one. Reusing HTTP connections with module-level `requests.Session` objects and scheduling the HTTP requests in parallel using `concurrent.futures.ThreadPoolExecutor` resolved this bottleneck cleanly.
+**Action:** Always identify independent, network-bound scraping tasks that can be parallelized, and employ persistent connection sessions to avoid repeated TCP/TLS handshake overhead.
