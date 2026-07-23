@@ -20,12 +20,15 @@ HEADERS = {
     "language": "cn",        # 返回中文内容；改成 "en" 可切换英文
 }
 
+# 使用模块级 Session 以复用 TCP 连接，提升多次请求的性能
+_session = requests.Session()
+
 
 def _post(endpoint: str, payload: dict) -> dict:
     """统一 POST 请求封装，返回 data 字段；出错返回空 dict。"""
     url = BASE_URL + endpoint
     try:
-        resp = requests.post(url, json=payload, headers=HEADERS, timeout=15)
+        resp = _session.post(url, json=payload, headers=HEADERS, timeout=15)
         resp.raise_for_status()
         body = resp.json()
         if body.get("result") is True or body.get("code") == 200:
