@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 TG_API_BASE = f"https://api.telegram.org/bot{TG_BOT_TOKEN}"
 MAX_LEN = 4000   # Telegram 硬上限是 4096，留出余量
 
+# ⚡ Bolt Optimization: Use module-level requests.Session to enable Keep-Alive
+# connection pooling, significantly reducing SSL/TLS handshake overhead.
+session = requests.Session()
+
 
 def _esc(s) -> str:
     """HTML 转义用户可控文本（名称/描述/地址等）。None 变空串。"""
@@ -37,7 +41,7 @@ def _send_chunk(text: str) -> bool:
         "disable_web_page_preview": True,
     }
     try:
-        resp = requests.post(url, data=data, timeout=15)
+        resp = session.post(url, data=data, timeout=15)
         if not resp.ok:
             logger.error(f"[TG] 发送失败: {resp.status_code} {resp.text[:300]}")
             return False
