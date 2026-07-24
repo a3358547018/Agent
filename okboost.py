@@ -22,12 +22,16 @@ BOOST_KEYWORDS = [
     "上新", "上线", "okb", "okboost",
 ]
 
+# ⚡ Bolt Optimization: Use module-level requests.Session to enable Keep-Alive
+# connection pooling, significantly reducing SSL/TLS handshake overhead.
+session = requests.Session()
+
 
 def _fetch_rss() -> list[dict]:
     """拉取并解析 OKX RSS，返回条目列表。"""
     try:
-        resp = requests.get(OKX_RSS_URL, timeout=15,
-                            headers={"User-Agent": "Mozilla/5.0"})
+        resp = session.get(OKX_RSS_URL, timeout=15,
+                           headers={"User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
     except Exception as e:

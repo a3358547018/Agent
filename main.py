@@ -9,6 +9,7 @@ main.py — 空投项目发掘助手主入口
 import argparse
 import time
 import schedule
+import concurrent.futures
 from datetime import date
 
 import rootdata
@@ -24,27 +25,40 @@ def run_daily_job():
     today_str = today.strftime("%Y-%m-%d")
     print(f"[{today_str}] ⏰ 开始执行每日空投日报任务…")
 
-    # ── 并行抓取（顺序调用，简单可靠） ───────────────────────
-    print("  → 抓取 RootData 融资数据…")
-    rd_funding  = rootdata.get_daily_funding(today)
+    # ⚡ Bolt Optimization: Fetch all 7 datasets in parallel using ThreadPoolExecutor
+    # to reduce execution time from the sum of all request latencies to the slowest single request.
+    print("  → [⚡ Parallel] 启动多线程并发抓取 7 个数据源…")
+    start_time = time.time()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+        future_to_name = {
+            executor.submit(rootdata.get_daily_funding, today): "RootData 融资数据",
+            executor.submit(rootdata.get_project_events, today): "RootData 项目动态",
+            executor.submit(rootdata.get_new_projects, 1): "RootData 新收录项目",
+            executor.submit(rootdata.get_upcoming_tge, 7): "RootData TGE 信息",
+            executor.submit(cryptorank.get_daily_funding, today): "CryptoRank 融资数据",
+            executor.submit(cryptorank.get_upcoming_ido, 7): "CryptoRank IDO 信息",
+            executor.submit(okboost.get_daily_okboost, today): "OKBoost 动态"
+        }
 
-    print("  → 抓取 RootData 项目动态…")
-    rd_events   = rootdata.get_project_events(today)
+        # Collect results with standard fallbacks if any future raises an unexpected exception
+        results = {}
+        for future, name in future_to_name.items():
+            try:
+                results[name] = future.result()
+            except Exception as e:
+                print(f"  ❌ 抓取 {name} 失败: {e}")
+                results[name] = []
 
-    print("  → 抓取 RootData 新收录项目…")
-    rd_new_proj = rootdata.get_new_projects(days=1)
+    rd_funding   = results["RootData 融资数据"]
+    rd_events    = results["RootData 项目动态"]
+    rd_new_proj  = results["RootData 新收录项目"]
+    rd_tge       = results["RootData TGE 信息"]
+    cr_funding   = results["CryptoRank 融资数据"]
+    cr_ido       = results["CryptoRank IDO 信息"]
+    okboost_data = results["OKBoost 动态"]
 
-    print("  → 抓取 RootData TGE 信息…")
-    rd_tge      = rootdata.get_upcoming_tge(days_ahead=7)
-
-    print("  → 抓取 CryptoRank 融资数据…")
-    cr_funding  = cryptorank.get_daily_funding(today)
-
-    print("  → 抓取 CryptoRank IDO 信息…")
-    cr_ido      = cryptorank.get_upcoming_ido(days_ahead=7)
-
-    print("  → 抓取 OKBoost 动态…")
-    okboost_data = okboost.get_daily_okboost(today)
+    elapsed = time.time() - start_time
+    print(f"  → [⚡ Parallel] 并发抓取完成，耗时: {elapsed:.2f}s")
 
     # ── 格式化报告 ────────────────────────────────────────────
     report = fmt_daily_report(
