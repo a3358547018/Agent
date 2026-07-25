@@ -22,12 +22,15 @@ BOOST_KEYWORDS = [
     "上新", "上线", "okb", "okboost",
 ]
 
+# Use module-level Session for connection pooling (reuse TCP/TLS handshake)
+session = requests.Session()
+session.headers.update({"User-Agent": "Mozilla/5.0"})
+
 
 def _fetch_rss() -> list[dict]:
     """拉取并解析 OKX RSS，返回条目列表。"""
     try:
-        resp = requests.get(OKX_RSS_URL, timeout=15,
-                            headers={"User-Agent": "Mozilla/5.0"})
+        resp = session.get(OKX_RSS_URL, timeout=15)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
     except Exception as e:

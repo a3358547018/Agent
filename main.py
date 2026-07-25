@@ -9,6 +9,7 @@ main.py — 空投项目发掘助手主入口
 import argparse
 import time
 import schedule
+import concurrent.futures
 from datetime import date
 
 import rootdata
@@ -24,27 +25,43 @@ def run_daily_job():
     today_str = today.strftime("%Y-%m-%d")
     print(f"[{today_str}] ⏰ 开始执行每日空投日报任务…")
 
-    # ── 并行抓取（顺序调用，简单可靠） ───────────────────────
-    print("  → 抓取 RootData 融资数据…")
-    rd_funding  = rootdata.get_daily_funding(today)
+    # ── 并行抓取（多线程并发，大幅减少总体网络等待时间） ───────────────────────
+    print("  → 正在并行抓取所有平台数据…")
 
-    print("  → 抓取 RootData 项目动态…")
-    rd_events   = rootdata.get_project_events(today)
+    tasks = {
+        "rd_funding":  (rootdata.get_daily_funding, (today,)),
+        "rd_events":   (rootdata.get_project_events, (today,)),
+        "rd_new_proj": (rootdata.get_new_projects, (1,)),
+        "rd_tge":      (rootdata.get_upcoming_tge, (7,)),
+        "cr_funding":  (cryptorank.get_daily_funding, (today,)),
+        "cr_ido":      (cryptorank.get_upcoming_ido, (7,)),
+        "okboost":     (okboost.get_daily_okboost, (today,)),
+    }
 
-    print("  → 抓取 RootData 新收录项目…")
-    rd_new_proj = rootdata.get_new_projects(days=1)
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+        # Submit all fetching tasks to the thread pool
+        future_to_key = {
+            executor.submit(func, *args): key
+            for key, (func, args) in tasks.items()
+        }
 
-    print("  → 抓取 RootData TGE 信息…")
-    rd_tge      = rootdata.get_upcoming_tge(days_ahead=7)
+        # Collect results as they complete
+        for future in concurrent.futures.as_completed(future_to_key):
+            key = future_to_key[future]
+            try:
+                results[key] = future.result()
+            except Exception as e:
+                print(f"  ❌ 并行抓取 {key} 异常: {e}")
+                results[key] = []
 
-    print("  → 抓取 CryptoRank 融资数据…")
-    cr_funding  = cryptorank.get_daily_funding(today)
-
-    print("  → 抓取 CryptoRank IDO 信息…")
-    cr_ido      = cryptorank.get_upcoming_ido(days_ahead=7)
-
-    print("  → 抓取 OKBoost 动态…")
-    okboost_data = okboost.get_daily_okboost(today)
+    rd_funding   = results.get("rd_funding", [])
+    rd_events    = results.get("rd_events", [])
+    rd_new_proj  = results.get("rd_new_proj", [])
+    rd_tge       = results.get("rd_tge", [])
+    cr_funding   = results.get("cr_funding", [])
+    cr_ido       = results.get("cr_ido", [])
+    okboost_data = results.get("okboost", [])
 
     # ── 格式化报告 ────────────────────────────────────────────
     report = fmt_daily_report(
