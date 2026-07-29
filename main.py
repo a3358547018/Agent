@@ -9,6 +9,7 @@ main.py — 空投项目发掘助手主入口
 import argparse
 import time
 import schedule
+import concurrent.futures
 from datetime import date
 
 import rootdata
@@ -24,27 +25,60 @@ def run_daily_job():
     today_str = today.strftime("%Y-%m-%d")
     print(f"[{today_str}] ⏰ 开始执行每日空投日报任务…")
 
-    # ── 并行抓取（顺序调用，简单可靠） ───────────────────────
-    print("  → 抓取 RootData 融资数据…")
-    rd_funding  = rootdata.get_daily_funding(today)
+    # ── 并行抓取（利用 ThreadPoolExecutor 并发抓取提升效率） ──
+    print(f"[{today_str}] ⏰ 开始并发抓取数据…")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+        # 提交所有独立的数据抓取任务
+        future_rd_funding  = executor.submit(rootdata.get_daily_funding, today)
+        future_rd_events   = executor.submit(rootdata.get_project_events, today)
+        future_rd_new_proj = executor.submit(rootdata.get_new_projects, 1)
+        future_rd_tge      = executor.submit(rootdata.get_upcoming_tge, 7)
+        future_cr_funding  = executor.submit(cryptorank.get_daily_funding, today)
+        future_cr_ido      = executor.submit(cryptorank.get_upcoming_ido, 7)
+        future_okboost     = executor.submit(okboost.get_daily_okboost, today)
 
-    print("  → 抓取 RootData 项目动态…")
-    rd_events   = rootdata.get_project_events(today)
+        # 获取结果，加上异常捕获以确保高可用性与稳定性
+        try:
+            rd_funding = future_rd_funding.result()
+        except Exception as e:
+            print(f"抓取 RootData 融资数据发生异常: {e}")
+            rd_funding = []
 
-    print("  → 抓取 RootData 新收录项目…")
-    rd_new_proj = rootdata.get_new_projects(days=1)
+        try:
+            rd_events = future_rd_events.result()
+        except Exception as e:
+            print(f"抓取 RootData 项目动态发生异常: {e}")
+            rd_events = []
 
-    print("  → 抓取 RootData TGE 信息…")
-    rd_tge      = rootdata.get_upcoming_tge(days_ahead=7)
+        try:
+            rd_new_proj = future_rd_new_proj.result()
+        except Exception as e:
+            print(f"抓取 RootData 新收录项目发生异常: {e}")
+            rd_new_proj = []
 
-    print("  → 抓取 CryptoRank 融资数据…")
-    cr_funding  = cryptorank.get_daily_funding(today)
+        try:
+            rd_tge = future_rd_tge.result()
+        except Exception as e:
+            print(f"抓取 RootData TGE 信息发生异常: {e}")
+            rd_tge = []
 
-    print("  → 抓取 CryptoRank IDO 信息…")
-    cr_ido      = cryptorank.get_upcoming_ido(days_ahead=7)
+        try:
+            cr_funding = future_cr_funding.result()
+        except Exception as e:
+            print(f"抓取 CryptoRank 融资数据发生异常: {e}")
+            cr_funding = []
 
-    print("  → 抓取 OKBoost 动态…")
-    okboost_data = okboost.get_daily_okboost(today)
+        try:
+            cr_ido = future_cr_ido.result()
+        except Exception as e:
+            print(f"抓取 CryptoRank IDO 信息发生异常: {e}")
+            cr_ido = []
+
+        try:
+            okboost_data = future_okboost.result()
+        except Exception as e:
+            print(f"抓取 OKBoost 动态发生异常: {e}")
+            okboost_data = []
 
     # ── 格式化报告 ────────────────────────────────────────────
     report = fmt_daily_report(

@@ -11,18 +11,29 @@ cryptorank.py — CryptoRank API 数据抓取模块
 """
 
 import requests
+import threading
 from datetime import date, timedelta
 from config import CRYPTORANK_API_KEY
 
 BASE_V2 = "https://api.cryptorank.io/v2"
 
+_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """获取或创建当前线程的 requests.Session 实例，实现连接池复用。"""
+    if not hasattr(_local, "session"):
+        _local.session = requests.Session()
+    return _local.session
+
 
 def _get(endpoint: str, params: dict = None) -> dict:
-    """统一 GET 请求，返回 data 字段；出错返回 {}。"""
+    """统一 GET 请求，使用线程安全的连接池，返回 data 字段；出错返回 {}。"""
     url = BASE_V2 + endpoint
     headers = {"X-Api-Key": CRYPTORANK_API_KEY}
     try:
-        resp = requests.get(url, params=params or {}, headers=headers, timeout=15)
+        session = _get_session()
+        resp = session.get(url, params=params or {}, headers=headers, timeout=15)
         resp.raise_for_status()
         body = resp.json()
         # V2 返回结构通常是 {"data": [...], "meta": {...}}

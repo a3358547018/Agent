@@ -12,12 +12,22 @@ notifier.py — Telegram Bot 推送模块
 import html
 import logging
 import requests
+import threading
 from config import TG_BOT_TOKEN, TG_CHAT_ID
 
 logger = logging.getLogger(__name__)
 
 TG_API_BASE = f"https://api.telegram.org/bot{TG_BOT_TOKEN}"
 MAX_LEN = 4000   # Telegram 硬上限是 4096，留出余量
+
+_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """获取或创建当前线程的 requests.Session 实例，实现连接池复用。"""
+    if not hasattr(_local, "session"):
+        _local.session = requests.Session()
+    return _local.session
 
 
 def _esc(s) -> str:
@@ -28,7 +38,7 @@ def _esc(s) -> str:
 
 
 def _send_chunk(text: str) -> bool:
-    """发送单条消息（HTML 格式）。"""
+    """发送单条消息（HTML 格式），使用线程安全的连接池。"""
     url  = f"{TG_API_BASE}/sendMessage"
     data = {
         "chat_id":    TG_CHAT_ID,
@@ -37,7 +47,8 @@ def _send_chunk(text: str) -> bool:
         "disable_web_page_preview": True,
     }
     try:
-        resp = requests.post(url, data=data, timeout=15)
+        session = _get_session()
+        resp = session.post(url, data=data, timeout=15)
         if not resp.ok:
             logger.error(f"[TG] 发送失败: {resp.status_code} {resp.text[:300]}")
             return False
