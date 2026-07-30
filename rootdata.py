@@ -9,6 +9,7 @@ rootdata.py — RootData API 数据抓取模块
 """
 
 import requests
+import threading
 from datetime import date, datetime
 from config import ROOTDATA_API_KEY
 
@@ -20,12 +21,22 @@ HEADERS = {
     "language": "cn",        # 返回中文内容；改成 "en" 可切换英文
 }
 
+_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """获取线程局部 Session，实现连接池并保证线程安全。"""
+    if not hasattr(_local, "session"):
+        _local.session = requests.Session()
+    return _local.session
+
 
 def _post(endpoint: str, payload: dict) -> dict:
     """统一 POST 请求封装，返回 data 字段；出错返回空 dict。"""
     url = BASE_URL + endpoint
     try:
-        resp = requests.post(url, json=payload, headers=HEADERS, timeout=15)
+        session = _get_session()
+        resp = session.post(url, json=payload, headers=HEADERS, timeout=15)
         resp.raise_for_status()
         body = resp.json()
         if body.get("result") is True or body.get("code") == 200:
