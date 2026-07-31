@@ -1,0 +1,3 @@
+## 2026-07-31 - Concurrently Aggregating Independent APIs with Thread-Local Sessions
+**Learning:** In network-bound multi-API scraper applications, sequential HTTP queries create a cumulative bottleneck, but naive multi-threading can introduce race conditions if sharing HTTP client sessions. Using thread-local `requests.Session` instances via `threading.local()` enables safe concurrent execution via `ThreadPoolExecutor` while fully retaining connection pooling benefits.
+**Action:** Always wrap `requests.Session()` with thread-local storage when parallelizing multi-API scrapers in Python, ensuring each thread executes on its own pool of keep-alive TCP connections.
