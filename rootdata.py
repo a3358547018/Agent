@@ -9,6 +9,7 @@ rootdata.py — RootData API 数据抓取模块
 """
 
 import requests
+import threading
 from datetime import date, datetime
 from config import ROOTDATA_API_KEY
 
@@ -20,12 +21,22 @@ HEADERS = {
     "language": "cn",        # 返回中文内容；改成 "en" 可切换英文
 }
 
+_thread_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """获取线程局部 requests.Session 实例，提供连接池并避免并发冲突。"""
+    if not hasattr(_thread_local, "session"):
+        _thread_local.session = requests.Session()
+    return _thread_local.session
+
 
 def _post(endpoint: str, payload: dict) -> dict:
     """统一 POST 请求封装，返回 data 字段；出错返回空 dict。"""
     url = BASE_URL + endpoint
     try:
-        resp = requests.post(url, json=payload, headers=HEADERS, timeout=15)
+        session = _get_session()
+        resp = session.post(url, json=payload, headers=HEADERS, timeout=15)
         resp.raise_for_status()
         body = resp.json()
         if body.get("result") is True or body.get("code") == 200:
@@ -36,6 +47,15 @@ def _post(endpoint: str, payload: dict) -> dict:
     except Exception as e:
         print(f"[RootData] {endpoint} 请求异常: {e}")
         return {}
+
+
+def _extract_items(data) -> list:
+    """安全提取列表项，处理 data 为 dict、list 或其他异常结构的情况，防止 AttributeError。"""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        return data.get("items") or data.get("list") or []
+    return []
 
 
 # ── 1. 当日新融资事件 ─────────────────────────────────────────
@@ -54,7 +74,7 @@ def get_daily_funding(target_date: date = None) -> list[dict]:
         "date": date_str,         # 精确到日
     })
 
-    items = data.get("items") or data.get("list") or (data if isinstance(data, list) else [])
+    items = _extract_items(data)
     result = []
     for item in items:
         result.append({
@@ -81,7 +101,7 @@ def get_new_projects(days: int = 1) -> list[dict]:
         "day": days,
     })
 
-    items = data.get("items") or data.get("list") or (data if isinstance(data, list) else [])
+    items = _extract_items(data)
     result = []
     for item in items:
         result.append({
@@ -109,7 +129,7 @@ def get_project_events(target_date: date = None) -> list[dict]:
         "date": date_str,
     })
 
-    items = data.get("items") or data.get("list") or (data if isinstance(data, list) else [])
+    items = _extract_items(data)
     result = []
     for item in items:
         result.append({
@@ -134,7 +154,7 @@ def get_upcoming_tge(days_ahead: int = 7) -> list[dict]:
         "day": days_ahead,
     })
 
-    items = data.get("items") or data.get("list") or (data if isinstance(data, list) else [])
+    items = _extract_items(data)
     result = []
     for item in items:
         result.append({
