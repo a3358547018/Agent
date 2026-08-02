@@ -8,11 +8,31 @@ rootdata.py — RootData API 数据抓取模块
   4. 即将 TGE / 发币项目
 """
 
+import threading
 import requests
 from datetime import date, datetime
 from config import ROOTDATA_API_KEY
 
 BASE_URL = "https://api.rootdata.com/open"
+
+_thread_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """获取线程局部的 requests.Session 实例，保留连接池优势并避免并发冲突。"""
+    if not hasattr(_thread_local, "session"):
+        _thread_local.session = requests.Session()
+    return _thread_local.session
+
+
+def _extract_items(data) -> list:
+    """安全地从 API 返回的数据中提取列表项。"""
+    if isinstance(data, dict):
+        return data.get("items") or data.get("list") or []
+    if isinstance(data, list):
+        return data
+    return []
+
 
 HEADERS = {
     "apikey": ROOTDATA_API_KEY,
@@ -25,7 +45,7 @@ def _post(endpoint: str, payload: dict) -> dict:
     """统一 POST 请求封装，返回 data 字段；出错返回空 dict。"""
     url = BASE_URL + endpoint
     try:
-        resp = requests.post(url, json=payload, headers=HEADERS, timeout=15)
+        resp = _get_session().post(url, json=payload, headers=HEADERS, timeout=15)
         resp.raise_for_status()
         body = resp.json()
         if body.get("result") is True or body.get("code") == 200:
@@ -54,7 +74,7 @@ def get_daily_funding(target_date: date = None) -> list[dict]:
         "date": date_str,         # 精确到日
     })
 
-    items = data.get("items") or data.get("list") or (data if isinstance(data, list) else [])
+    items = _extract_items(data)
     result = []
     for item in items:
         result.append({
@@ -81,7 +101,7 @@ def get_new_projects(days: int = 1) -> list[dict]:
         "day": days,
     })
 
-    items = data.get("items") or data.get("list") or (data if isinstance(data, list) else [])
+    items = _extract_items(data)
     result = []
     for item in items:
         result.append({
@@ -109,7 +129,7 @@ def get_project_events(target_date: date = None) -> list[dict]:
         "date": date_str,
     })
 
-    items = data.get("items") or data.get("list") or (data if isinstance(data, list) else [])
+    items = _extract_items(data)
     result = []
     for item in items:
         result.append({
@@ -134,7 +154,7 @@ def get_upcoming_tge(days_ahead: int = 7) -> list[dict]:
         "day": days_ahead,
     })
 
-    items = data.get("items") or data.get("list") or (data if isinstance(data, list) else [])
+    items = _extract_items(data)
     result = []
     for item in items:
         result.append({
