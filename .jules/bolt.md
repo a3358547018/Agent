@@ -1,0 +1,3 @@
+## 2026-08-03 - Parallel Thread-Local Session Optimization
+**Learning:** Reusing HTTP connections in a concurrent scraper is highly effective but demands thread safety. Standard `requests.Session()` is not thread-safe if shared across threads without locks. Wrapping `requests.Session` in `threading.local()` allows each thread in a `ThreadPoolExecutor` to retain its own connection pool safely without resource contention or race conditions.
+**Action:** When migrating from sequential `requests` calls to concurrent `ThreadPoolExecutor` fetches, always wrap sessions in `threading.local()` to reap the connection pooling latency improvements safely.

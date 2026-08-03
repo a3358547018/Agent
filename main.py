@@ -18,43 +18,48 @@ from notifier import send_message, fmt_daily_report
 from config   import SCHEDULE_HOUR, SCHEDULE_MINUTE
 
 
+from concurrent.futures import ThreadPoolExecutor
+
+
 def run_daily_job():
     """核心任务：抓取所有数据 → 格式化 → 推送 TG。"""
     today     = date.today()
     today_str = today.strftime("%Y-%m-%d")
     print(f"[{today_str}] ⏰ 开始执行每日空投日报任务…")
 
-    # ── 并行抓取（顺序调用，简单可靠） ───────────────────────
-    print("  → 抓取 RootData 融资数据…")
-    rd_funding  = rootdata.get_daily_funding(today)
+    # ── 并行抓取（采用 ThreadPoolExecutor 并发抓取各平台数据，显著降低总延时） ──
+    print("  → 启动并发任务拉取各平台数据…")
 
-    print("  → 抓取 RootData 项目动态…")
-    rd_events   = rootdata.get_project_events(today)
+    tasks = {
+        "rd_funding":  lambda: rootdata.get_daily_funding(today),
+        "rd_events":   lambda: rootdata.get_project_events(today),
+        "rd_new_proj": lambda: rootdata.get_new_projects(days=1),
+        "rd_tge":      lambda: rootdata.get_upcoming_tge(days_ahead=7),
+        "cr_funding":  lambda: cryptorank.get_daily_funding(today),
+        "cr_ido":      lambda: cryptorank.get_upcoming_ido(days_ahead=7),
+        "okboost":     lambda: okboost.get_daily_okboost(today),
+    }
 
-    print("  → 抓取 RootData 新收录项目…")
-    rd_new_proj = rootdata.get_new_projects(days=1)
-
-    print("  → 抓取 RootData TGE 信息…")
-    rd_tge      = rootdata.get_upcoming_tge(days_ahead=7)
-
-    print("  → 抓取 CryptoRank 融资数据…")
-    cr_funding  = cryptorank.get_daily_funding(today)
-
-    print("  → 抓取 CryptoRank IDO 信息…")
-    cr_ido      = cryptorank.get_upcoming_ido(days_ahead=7)
-
-    print("  → 抓取 OKBoost 动态…")
-    okboost_data = okboost.get_daily_okboost(today)
+    results = {}
+    with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+        # 提交所有数据拉取任务并并发执行
+        futures = {name: executor.submit(fn) for name, fn in tasks.items()}
+        for name, future in futures.items():
+            try:
+                results[name] = future.result()
+            except Exception as e:
+                print(f"[ERROR] 并行抓取 {name} 失败: {e}")
+                results[name] = []
 
     # ── 格式化报告 ────────────────────────────────────────────
     report = fmt_daily_report(
-        rd_funding  = rd_funding,
-        rd_events   = rd_events,
-        rd_new_proj = rd_new_proj,
-        rd_tge      = rd_tge,
-        cr_funding  = cr_funding,
-        cr_ido      = cr_ido,
-        okboost     = okboost_data,
+        rd_funding  = results.get("rd_funding", []),
+        rd_events   = results.get("rd_events", []),
+        rd_new_proj = results.get("rd_new_proj", []),
+        rd_tge      = results.get("rd_tge", []),
+        cr_funding  = results.get("cr_funding", []),
+        cr_ido      = results.get("cr_ido", []),
+        okboost     = results.get("okboost", []),
         report_date = today_str,
     )
 
