@@ -1,0 +1,3 @@
+## 2026-08-04 - Thread-safe Connection Pooling with threading.local and requests
+**Learning:** In highly concurrent environments (e.g., executing multiple concurrent HTTP fetches with ThreadPoolExecutor), using a single shared `requests.Session()` can lead to thread safety and SSL connection state corruption issues, whereas creating a brand new session per request eliminates the benefits of TCP/TLS handshake reuse and connection pooling.
+**Action:** Always implement a thread-local session helper via `threading.local()` (`_get_session()`) inside each independent module to guarantee robust, isolated connection pooling for every executing thread.
