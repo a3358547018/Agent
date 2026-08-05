@@ -8,6 +8,7 @@ rootdata.py — RootData API 数据抓取模块
   4. 即将 TGE / 发币项目
 """
 
+import threading
 import requests
 from datetime import date, datetime
 from config import ROOTDATA_API_KEY
@@ -20,12 +21,21 @@ HEADERS = {
     "language": "cn",        # 返回中文内容；改成 "en" 可切换英文
 }
 
+_thread_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """获取或初始化线程局部 Session 实例，保留连接池并避免并发冲突。"""
+    if not hasattr(_thread_local, "session"):
+        _thread_local.session = requests.Session()
+    return _thread_local.session
+
 
 def _post(endpoint: str, payload: dict) -> dict:
     """统一 POST 请求封装，返回 data 字段；出错返回空 dict。"""
     url = BASE_URL + endpoint
     try:
-        resp = requests.post(url, json=payload, headers=HEADERS, timeout=15)
+        resp = _get_session().post(url, json=payload, headers=HEADERS, timeout=15)
         resp.raise_for_status()
         body = resp.json()
         if body.get("result") is True or body.get("code") == 200:
