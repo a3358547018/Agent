@@ -1,0 +1,3 @@
+## 2026-08-10 - Mocking Session-based HTTP Requests
+**Learning:** When refactoring from direct `requests.get` / `requests.post` calls to thread-local `requests.Session` instances, mocking standard module methods like `requests.get` or `requests.post` fails to intercept network calls because modules now call `.get` or `.post` directly on `requests.Session` instances.
+**Action:** In future test and benchmark configurations, mock `requests.Session.get` and `requests.Session.post` or patch the thread-local helper function `_get_session` to ensure complete network isolation and deterministic local simulation.
