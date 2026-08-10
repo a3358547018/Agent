@@ -7,12 +7,22 @@ okboost.py — OKX / OKBoost 每日动态抓取模块
 """
 
 import re
+import threading
 import requests
 import xml.etree.ElementTree as ET
 from datetime import date
 from email.utils import parsedate_to_datetime
 
 OKX_RSS_URL = "https://www.okx.com/help-center/rss.xml"
+
+_thread_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """获取线程局部的 requests.Session 实例，确保并发安全且复用连接"""
+    if not hasattr(_thread_local, "session"):
+        _thread_local.session = requests.Session()
+    return _thread_local.session
 
 # 关键词列表——命中其一即纳入推送
 BOOST_KEYWORDS = [
@@ -26,7 +36,8 @@ BOOST_KEYWORDS = [
 def _fetch_rss() -> list[dict]:
     """拉取并解析 OKX RSS，返回条目列表。"""
     try:
-        resp = requests.get(OKX_RSS_URL, timeout=15,
+        session = _get_session()
+        resp = session.get(OKX_RSS_URL, timeout=15,
                             headers={"User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
