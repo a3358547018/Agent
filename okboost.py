@@ -8,11 +8,21 @@ okboost.py — OKX / OKBoost 每日动态抓取模块
 
 import re
 import requests
+import threading
 import xml.etree.ElementTree as ET
 from datetime import date
 from email.utils import parsedate_to_datetime
 
 OKX_RSS_URL = "https://www.okx.com/help-center/rss.xml"
+
+_thread_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """获取或创建当前线程独占的 requests.Session 实例。"""
+    if not hasattr(_thread_local, "session"):
+        _thread_local.session = requests.Session()
+    return _thread_local.session
 
 # 关键词列表——命中其一即纳入推送
 BOOST_KEYWORDS = [
@@ -26,8 +36,9 @@ BOOST_KEYWORDS = [
 def _fetch_rss() -> list[dict]:
     """拉取并解析 OKX RSS，返回条目列表。"""
     try:
-        resp = requests.get(OKX_RSS_URL, timeout=15,
-                            headers={"User-Agent": "Mozilla/5.0"})
+        session = _get_session()
+        resp = session.get(OKX_RSS_URL, timeout=15,
+                           headers={"User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
     except Exception as e:
@@ -54,10 +65,10 @@ def _fetch_rss() -> list[dict]:
                 pass
 
         items.append({
-            "title":   title,
-            "link":    link,
-            "desc":    re.sub(r"<[^>]+>", "", description).strip(),
-            "pub_dt":  pub_dt,
+            "title":      title,
+            "link":       link,
+            "desc_raw":   description,
+            "pub_dt":     pub_dt,
         })
     return items
 
@@ -83,12 +94,15 @@ def get_daily_okboost(target_date: date = None) -> list[dict]:
             if local_date != target_date:
                 continue
 
+        # 延迟执行 regex HTML 过滤，仅对匹配的日期行有效，大幅节省 CPU 算力
+        clean_desc = re.sub(r"<[^>]+>", "", item["desc_raw"]).strip()
+
         # 关键词过滤
-        combined = (item["title"] + " " + item["desc"]).lower()
+        combined = (item["title"] + " " + clean_desc).lower()
         if any(kw in combined for kw in BOOST_KEYWORDS):
             result.append({
                 "title": item["title"],
-                "desc":  item["desc"][:200] + ("…" if len(item["desc"]) > 200 else ""),
+                "desc":  clean_desc[:200] + ("…" if len(clean_desc) > 200 else ""),
                 "url":   item["link"],
                 "date":  target_date.strftime("%Y-%m-%d"),
             })
