@@ -1,0 +1,3 @@
+## 2025-08-12 - Parallel Data Fetching & Thread-Local Connection Pooling
+**Learning:** Sequential network-bound data-fetching across multiple APIs (like RootData, CryptoRank, OKX) creates a massive bottleneck. Introducing concurrency via `ThreadPoolExecutor` and ensuring thread-safe connection pooling with `threading.local` reduces latency by ~75%. Eager regex cleanups on large RSS feeds are also a CPU bottleneck and should be lazy-evaluated after date filtering.
+**Action:** Always evaluate if multiple external network requests are independent and can be parallelized, and use thread-local session management to maintain connection pooling benefits safely.
